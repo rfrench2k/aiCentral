@@ -1,0 +1,121 @@
+/**
+ * AI Central Admin Tiers - Bootstrap 5.3.3 Overrides
+ * Most styling now handled by Bootstrap classes
+ */
+
+/* Tier card enhancements */
+.card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Card header solid primary color */
+.card-header.bg-primary {
+    background-color: #0d6efd !important;
+}
+
+/* Button transitions */
+.btn {
+    transition: all 0.2s ease;
+}
+
+/* Modal improvements */
+.modal-content {
+    border-radius: 0.5rem;
+}
+
+.modal-header.bg-light {
+    background-color: #f8f9fa !important;
+}
+
+.modal-footer.bg-light {
+    background-color: #f8f9fa !important;
+}
+
+/* Form focus states */
+.form-control:focus,
+.form-select:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+}
+
+/* Badge styles - solid colors */
+.badge.bg-success {
+    background-color: #198754 !important;
+}
+
+.badge.bg-secondary {
+    background-color: #6c757d !important;
+}
+
+/* Text colors - solid */
+.text-success {
+    color: #198754 !important;
+}
+
+.text-primary {
+    color: #0d6efd !important;
+}
+
+.text-warning {
+    color: #ffc107 !important;
+}
+
+/* Background colors - solid */
+.bg-light {
+    background-color: #f8f9fa !important;
+}
+
+/* Button solid colors */
+.btn-primary {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+}
+
+.btn-primary:hover {
+    background-color: #0b5ed7;
+    border-color: #0a58ca;
+}
+
+.btn-success {
+    background-color: #198754;
+    border-color: #198754;
+}
+
+.btn-success:hover {
+    background-color: #157347;
+    border-color: #146c43;
+}
+
+.btn-warning {
+    background-color: #ffc107;
+    border-color: #ffc107;
+    color: #000;
+}
+
+.btn-warning:hover {
+    background-color: #ffca2c;
+    border-color: #ffc720;
+    color: #000;
+}
+
+.btn-secondary {
+    background-color: #6c757d;
+    border-color: #6c757d;
+}
+
+.btn-secondary:hover {
+    background-color: #5c636a;
+    border-color: #565e64;
+}
+
+/* Responsive grid adjustments */
+@media (max-width: 768px) {
+    .modal-dialog {
+        margin: 0.5rem;
+    }
+}

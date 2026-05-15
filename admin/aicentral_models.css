@@ -1,0 +1,409 @@
+/**
+ * AI Central Admin Models - Styles
+ */
+
+/* Filters Bar */
+.aicentral-filters-bar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+}
+
+.aicentral-filter-select {
+    padding: 10px 16px;
+    border: 1px solid #e1e4e8;
+    border-radius: 8px;
+    font-size: 14px;
+    background: white;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.aicentral-filter-select:focus {
+    border-color: #667eea;
+}
+
+.aicentral-filter-search {
+    flex: 1;
+    min-width: 250px;
+    padding: 10px 16px;
+    border: 1px solid #e1e4e8;
+    border-radius: 8px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.aicentral-filter-search:focus {
+    border-color: #667eea;
+}
+
+/* Models Container */
+.aicentral-models-container {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+.aicentral-provider-group {
+    background: white;
+    border: 1px solid #e1e4e8;
+    border-radius: 12px;
+    padding: 24px;
+}
+
+.aicentral-provider-group-title {
+    margin: 0 0 20px 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: #333;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #e1e4e8;
+}
+
+.aicentral-models-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+/* Model Card */
+.aicentral-model-card {
+    background: #f8f9fa;
+    border: 2px solid #e1e4e8;
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    transition: all 0.2s;
+}
+
+.aicentral-model-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.aicentral-model-card.inactive {
+    opacity: 0.6;
+    border-color: #cbd5e0;
+}
+
+.aicentral-model-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.aicentral-model-name {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+}
+
+.aicentral-model-code {
+    font-size: 12px;
+    color: #666;
+    font-family: monospace;
+    margin-top: 4px;
+}
+
+.aicentral-model-tier {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.aicentral-tier-budget {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.aicentral-tier-standard {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.aicentral-tier-premium {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.aicentral-tier-flagship {
+    background: #fce7f3;
+    color: #831843;
+}
+
+.aicentral-model-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.aicentral-model-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+}
+
+.aicentral-model-label {
+    color: #666;
+}
+
+.aicentral-model-features {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.aicentral-feature-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: #e0e7ff;
+    color: #4338ca;
+}
+
+.aicentral-model-footer {
+    display: flex;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid #e1e4e8;
+}
+
+.aicentral-btn-sm {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.aicentral-btn-secondary {
+    background: white;
+    color: #333;
+    border: 1px solid #e1e4e8;
+}
+
+.aicentral-btn-secondary:hover {
+    background: #f8f9fa;
+    border-color: #667eea;
+}
+
+.aicentral-btn-success {
+    background: #22c55e;
+    color: white;
+}
+
+.aicentral-btn-success:hover {
+    background: #16a34a;
+}
+
+.aicentral-btn-warning {
+    background: #f59e0b;
+    color: white;
+}
+
+.aicentral-btn-warning:hover {
+    background: #d97706;
+}
+
+/* Dialog */
+.aicentral-dialog {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 10000;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.aicentral-dialog-content {
+    background: white;
+    border-radius: 12px;
+    max-width: 600px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.aicentral-dialog-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e1e4e8;
+}
+
+.aicentral-dialog-header h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.aicentral-dialog-close {
+    background: none;
+    border: none;
+    font-size: 28px;
+    color: #999;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.aicentral-dialog-close:hover {
+    background: #f8f9fa;
+    color: #333;
+}
+
+.aicentral-dialog-body {
+    padding: 24px;
+}
+
+.aicentral-dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 20px 24px;
+    border-top: 1px solid #e1e4e8;
+    background: #f8f9fa;
+}
+
+/* Form Elements */
+.aicentral-form-group {
+    margin-bottom: 20px;
+}
+
+.aicentral-form-group label {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 8px;
+}
+
+.aicentral-form-control {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.aicentral-form-control:focus {
+    border-color: #667eea;
+}
+
+.aicentral-form-control::placeholder {
+    color: #999;
+}
+
+.aicentral-form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.aicentral-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.aicentral-checkbox-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+textarea.aicentral-form-control {
+    resize: vertical;
+    min-height: 80px;
+}
+
+.aicentral-btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.aicentral-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.aicentral-admin-btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.aicentral-admin-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+/* Empty State */
+.aicentral-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: #999;
+    font-size: 16px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .aicentral-models-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .aicentral-form-row {
+        grid-template-columns: 1fr;
+    }
+
+    .aicentral-filters-bar {
+        flex-direction: column;
+    }
+
+    .aicentral-filter-search {
+        min-width: 100%;
+    }
+}

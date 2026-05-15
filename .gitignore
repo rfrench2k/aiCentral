@@ -1,0 +1,114 @@
+# ============================================
+# AI Central Platform - .gitignore
+# ============================================
+
+# ------------------------------------------
+# Database / Dev Tools
+# ------------------------------------------
+db-query.php
+db-query-prod.php
+
+# ------------------------------------------
+# Test files and directories
+# ------------------------------------------
+test/
+test_*.php
+test-*.php
+test-*.html
+admin/test_*.php
+admin/test_output.html
+
+# ------------------------------------------
+# Setup / Migration scripts (one-time use)
+# ------------------------------------------
+migrations/
+check_providers.php
+insert_grok_gemini_models.php
+load_sql.php
+populate_capabilities.php
+register_collect_feature.php
+run_migration.php
+migration-*.php
+migration-*.sql
+migration_*.sql
+run_sql_file.php
+check_db_structure.php
+populate_data.php
+install_database.php
+run_integration_scripts.php
+run_integration_fixed.php
+check-production-auth.php
+
+# ------------------------------------------
+# SQL files (migrations, seeds, one-time)
+# Bundle the canonical schema and reference seed data; ignore everything else.
+# ------------------------------------------
+*.sql
+!/schema.sql
+!/seed_data.sql
+
+# ------------------------------------------
+# Admin one-time / sync / debug scripts
+# ------------------------------------------
+admin/verify-sync-complete.php
+admin/test-sync-debug.php
+admin/sync-remaining-tables.php
+admin/sync-auto-increment-values.php
+admin/nuke-and-rebuild-prod.php
+admin/compare-models-simple.php
+admin/debug-models-diff.php
+admin/detailed-differences.php
+admin/fix-remaining-issues.php
+admin/check-missing-features.php
+admin/force-sync-test-to-prod.php
+admin/api/
+
+# ------------------------------------------
+# Design docs, requirements, status files
+# README.md is the public-facing doc; CLAUDE.md is developer-internal AI
+# instructions and is intentionally NOT tracked in the public repo.
+# ------------------------------------------
+*.md
+*.txt
+!**/README.md
+
+# ------------------------------------------
+# Environment variable scripts (secrets)
+# ------------------------------------------
+scripts/
+
+# Private per-app config files that may contain hardcoded secrets.
+# The older aPRIV_API.php and aPRIV_DB_AI.php are already tracked and use
+# getenv() so they contain no secrets — this pattern protects newer files.
+# aPRIV_LOCAL.example.php IS tracked and ships as the template.
+common/aPRIV_LOCAL.php
+
+# ------------------------------------------
+# Backup / Old files
+# ------------------------------------------
+/old/
+**/old/
+.old/
+*.bak
+*.bak-*
+
+# ------------------------------------------
+# Log files
+# ------------------------------------------
+*.log
+
+# ------------------------------------------
+# IDE / Editor
+# ------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ------------------------------------------
+# OS / System files
+# ------------------------------------------
+.DS_Store
+Thumbs.db
+bash.exe.stackdump

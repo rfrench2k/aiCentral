@@ -1,0 +1,342 @@
+/**
+ * AI Central Admin Dashboard - Styles
+ */
+
+.aicentral-admin-container {
+    padding: 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.aicentral-admin-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+}
+
+.aicentral-admin-header h1 {
+    margin: 0;
+    font-size: 28px;
+    font-weight: 600;
+    color: #333;
+}
+
+.aicentral-admin-header-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.aicentral-admin-btn-secondary {
+    background: white;
+    border: 1px solid #e1e4e8;
+    color: #333;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.aicentral-admin-btn-secondary:hover {
+    background: #f8f9fa;
+    border-color: #667eea;
+}
+
+/* Stats Grid */
+.aicentral-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+    margin-bottom: 32px;
+}
+
+.aicentral-stat-card {
+    background: white;
+    border: 1px solid #e1e4e8;
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    gap: 16px;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.aicentral-stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.aicentral-stat-icon {
+    font-size: 32px;
+    width: 56px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 12px;
+    flex-shrink: 0;
+}
+
+.aicentral-stat-content {
+    flex: 1;
+}
+
+.aicentral-stat-label {
+    font-size: 13px;
+    color: #666;
+    margin-bottom: 8px;
+}
+
+.aicentral-stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #333;
+    margin-bottom: 4px;
+}
+
+.aicentral-stat-change {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.aicentral-stat-change.positive {
+    color: #22c55e;
+}
+
+.aicentral-stat-change.negative {
+    color: #ef4444;
+}
+
+.aicentral-stat-change.neutral {
+    color: #999;
+}
+
+/* Charts Row */
+.aicentral-charts-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    margin-bottom: 32px;
+}
+
+.aicentral-chart-card {
+    background: white;
+    border: 1px solid #e1e4e8;
+    border-radius: 12px;
+    padding: 24px;
+}
+
+.aicentral-chart-card h3 {
+    margin: 0 0 20px 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #333;
+}
+
+.aicentral-chart-card canvas {
+    height: 300px !important;
+}
+
+/* Data Row */
+.aicentral-data-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 20px;
+    margin-bottom: 32px;
+}
+
+.aicentral-data-card {
+    background: white;
+    border: 1px solid #e1e4e8;
+    border-radius: 12px;
+    padding: 24px;
+}
+
+.aicentral-data-card h3 {
+    margin: 0 0 20px 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #333;
+}
+
+/* Table */
+.aicentral-table-container {
+    overflow-x: auto;
+}
+
+.aicentral-data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.aicentral-data-table thead {
+    background: #f8f9fa;
+}
+
+.aicentral-data-table th {
+    padding: 12px;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 600;
+    color: #666;
+    border-bottom: 2px solid #e1e4e8;
+}
+
+.aicentral-data-table td {
+    padding: 12px;
+    font-size: 14px;
+    color: #333;
+    border-bottom: 1px solid #e1e4e8;
+}
+
+.aicentral-data-table tr:hover {
+    background: #f8f9fa;
+}
+
+.aicentral-status-success {
+    color: #22c55e;
+    font-weight: 600;
+}
+
+.aicentral-status-failed {
+    color: #ef4444;
+    font-weight: 600;
+}
+
+.aicentral-loading,
+.aicentral-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: #999;
+    font-style: italic;
+}
+
+/* Programs List */
+.aicentral-programs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.aicentral-program-item {
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 8px;
+}
+
+.aicentral-program-name {
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 8px;
+}
+
+.aicentral-program-bar {
+    height: 8px;
+    background: #e1e4e8;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.aicentral-program-bar-fill {
+    height: 100%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 4px;
+    transition: width 0.3s;
+}
+
+.aicentral-program-stats {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: #666;
+}
+
+/* Providers Grid */
+.aicentral-providers-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 16px;
+}
+
+.aicentral-provider-card {
+    background: #f8f9fa;
+    border: 1px solid #e1e4e8;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.aicentral-provider-card.inactive {
+    opacity: 0.6;
+}
+
+.aicentral-provider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.aicentral-provider-header h4 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+}
+
+.aicentral-provider-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+}
+
+.aicentral-provider-card.active .aicentral-provider-badge {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.aicentral-provider-card.inactive .aicentral-provider-badge {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.aicentral-provider-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.aicentral-provider-stat-label {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 4px;
+}
+
+.aicentral-provider-stat-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: #333;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+    .aicentral-charts-row,
+    .aicentral-data-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .aicentral-stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .aicentral-admin-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+    }
+}

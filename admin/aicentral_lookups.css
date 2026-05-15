@@ -1,0 +1,49 @@
+/**
+ * AI Central Admin - Lookups Management Styles
+ */
+
+/* Table styling */
+#lookups-table-body code {
+    background-color: #f8f9fa;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
+#lookups-table-body .badge {
+    font-weight: 500;
+    padding: 0.35em 0.65em;
+}
+
+/* Button spacing */
+#lookups-table-body .btn {
+    margin-right: 4px;
+}
+
+#lookups-table-body .btn:last-child {
+    margin-right: 0;
+}
+
+/* Modal form */
+#lookup-form .form-text {
+    font-size: 0.875rem;
+    color: #6c757d;
+}
+
+/* Category badges */
+.badge.bg-info {
+    background-color: #0dcaf0 !important;
+    color: #000;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    #lookups-table-body td {
+        font-size: 0.9rem;
+    }
+
+    #lookups-table-body .btn-sm {
+        padding: 0.2rem 0.4rem;
+        font-size: 0.8rem;
+    }
+}

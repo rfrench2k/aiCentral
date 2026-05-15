@@ -1,0 +1,123 @@
+/**
+ * AI Central System - Common Styles
+ * Works with Bootstrap 5.3.3
+ */
+
+/* Override Bootstrap defaults - NO GRADIENTS */
+:root {
+    --ai-primary: #0d6efd;
+    --ai-secondary: #6c757d;
+    --ai-success: #198754;
+    --ai-danger: #dc3545;
+    --ai-warning: #ffc107;
+    --ai-info: #0dcaf0;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #f8f9fa;
+}
+
+/* Buttons - solid colors only */
+.btn-primary:hover {
+    background-color: #0b5ed7;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(13, 110, 253, 0.3);
+}
+
+/* Cards with gradient border */
+.card {
+    border: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* Tables */
+.table {
+    background: white;
+}
+
+.table thead {
+    background-color: #0d6efd;
+    color: white;
+}
+
+/* Badges */
+.badge {
+    padding: 0.5em 1em;
+    font-weight: 600;
+}
+
+/* Forms */
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--ai-primary);
+    box-shadow: 0 0 0 0.25rem rgba(102, 126, 234, 0.25);
+}
+
+/* Loading states */
+.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+/* Empty states */
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #6c757d;
+}
+
+.empty-state i {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+}
+
+/* Utility classes */
+.text-primary-custom {
+    color: #0d6efd !important;
+}
+
+/* Chart containers */
+canvas {
+    max-height: 400px;
+}
+
+/* Status badges */
+.status-active {
+    background: var(--ai-success);
+    color: white;
+}
+
+.status-inactive {
+    background: #6c757d;
+    color: white;
+}
+
+.status-success {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.status-failed {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .container-fluid {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .card-body {
+        padding: 1rem;
+    }
+}

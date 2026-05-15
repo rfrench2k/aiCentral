@@ -1,0 +1,319 @@
+/**
+ * AI Central - Usage Analysis
+ * Custom CSS
+ */
+
+/* Table styling */
+#usage-table tbody tr {
+    transition: background-color 0.2s ease;
+}
+
+#usage-table tbody tr:hover {
+    background-color: rgba(13, 110, 253, 0.05);
+}
+
+/* Filter section */
+.form-select-sm, .form-control-sm {
+    font-size: 0.875rem;
+}
+
+/* Badge styling */
+.badge {
+    font-weight: 500;
+    padding: 0.35em 0.65em;
+}
+
+/* Chart containers */
+canvas {
+    max-width: 100%;
+}
+
+/* Detail modal pre elements */
+#detailModal pre {
+    font-size: 0.85rem;
+    line-height: 1.4;
+    background-color: #f8f9fa !important;
+    border: 1px solid #dee2e6;
+}
+
+/* Card hover effects */
+.card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Stats card icons */
+.bg-primary { background-color: #0d6efd !important; }
+.bg-success { background-color: #198754 !important; }
+.bg-info { background-color: #0dcaf0 !important; }
+.bg-warning { background-color: #ffc107 !important; }
+.bg-danger { background-color: #dc3545 !important; }
+
+/* Small text helpers */
+.small-text {
+    font-size: 0.875rem;
+}
+
+/* Table responsiveness */
+.table-responsive {
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+/* Pagination styling */
+.pagination {
+    margin-bottom: 0;
+}
+
+.page-link {
+    color: #0d6efd;
+    border-color: #dee2e6;
+}
+
+.page-link:hover {
+    color: #0a58ca;
+    background-color: #e9ecef;
+    border-color: #dee2e6;
+}
+
+.page-item.active .page-link {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+}
+
+.page-item.disabled .page-link {
+    color: #6c757d;
+    pointer-events: none;
+    background-color: #fff;
+    border-color: #dee2e6;
+}
+
+/* Modal sizing */
+.modal-xl {
+    max-width: 1200px;
+}
+
+/* Copy button in modal */
+.btn-outline-secondary {
+    border-color: #6c757d;
+    color: #6c757d;
+}
+
+.btn-outline-secondary:hover {
+    background-color: #6c757d;
+    color: #fff;
+}
+
+/* Loading spinner */
+.spinner-border {
+    width: 3rem;
+    height: 3rem;
+}
+
+/* Filters card header */
+.card-header h5 {
+    margin-bottom: 0;
+    font-size: 1.1rem;
+}
+
+/* Summary stats */
+.flex-shrink-0 .rounded-3 {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Table header */
+.table-light {
+    background-color: #f8f9fa;
+    border-bottom: 2px solid #dee2e6;
+}
+
+.table-light th {
+    font-weight: 600;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #495057;
+}
+
+/* Status badges in table */
+.badge.bg-success {
+    background-color: #198754 !important;
+}
+
+.badge.bg-danger {
+    background-color: #dc3545 !important;
+}
+
+/* Error alert in modal */
+.alert-danger {
+    background-color: #f8d7da;
+    border-color: #f5c2c7;
+    color: #842029;
+}
+
+/* Custom scrollbar for pre elements */
+#detailModal pre::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+#detailModal pre::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+#detailModal pre::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+#detailModal pre::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Table action buttons */
+.btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+.btn-outline-primary {
+    border-color: #0d6efd;
+    color: #0d6efd;
+}
+
+.btn-outline-primary:hover {
+    background-color: #0d6efd;
+    color: #fff;
+}
+
+/* Chart card headers */
+.card-header.bg-white {
+    background-color: #fff !important;
+    border-bottom: 1px solid #dee2e6;
+}
+
+/* Footer styling */
+.card-footer.bg-white {
+    background-color: #fff !important;
+    border-top: 1px solid #dee2e6;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .flex-shrink-0 .rounded-3 {
+        width: 50px;
+        height: 50px;
+    }
+
+    .flex-shrink-0 i {
+        font-size: 1.25rem !important;
+    }
+
+    h3 {
+        font-size: 1.5rem;
+    }
+
+    .table-responsive {
+        font-size: 0.8rem;
+    }
+
+    .modal-xl {
+        max-width: 95%;
+    }
+}
+
+/* Custom date range inputs */
+#custom-date-range,
+#custom-date-range-to {
+    transition: opacity 0.3s ease;
+}
+
+/* Export button */
+.btn-success {
+    background-color: #198754;
+    border-color: #198754;
+}
+
+.btn-success:hover {
+    background-color: #157347;
+    border-color: #146c43;
+}
+
+/* Refresh button animation */
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.btn .bi-arrow-clockwise:active {
+    animation: spin 0.5s linear;
+}
+
+/* Detail modal table styling */
+#detailModal .table-borderless td {
+    padding: 0.5rem 0.5rem;
+}
+
+#detailModal .table-borderless .text-muted {
+    color: #6c757d !important;
+    font-weight: 500;
+}
+
+/* Usage count badge */
+#usage-count {
+    font-size: 0.85rem;
+    font-weight: 500;
+    vertical-align: middle;
+}
+
+/* Tabs styling */
+#usage-tabs {
+    border-bottom: 2px solid #dee2e6;
+}
+
+#usage-tabs .nav-link {
+    color: #6c757d;
+    border: none;
+    border-bottom: 3px solid transparent;
+    padding: 0.75rem 1.5rem;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+#usage-tabs .nav-link:hover {
+    color: #0d6efd;
+    border-bottom-color: rgba(13, 110, 253, 0.3);
+}
+
+#usage-tabs .nav-link.active {
+    color: #0d6efd;
+    background-color: transparent;
+    border-bottom-color: #0d6efd;
+}
+
+/* Advanced filters toggle */
+#advanced-filters {
+    transition: all 0.3s ease;
+}
+
+#btn-toggle-filters {
+    white-space: nowrap;
+}
+
+/* Action buttons spacing */
+.gap-2 {
+    gap: 0.5rem !important;
+}

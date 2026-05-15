@@ -1,0 +1,416 @@
+/**
+ * AI Central User API Keys - Styles
+ */
+
+/* User Container */
+.aicentral-user-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px;
+}
+
+.aicentral-user-header {
+    margin-bottom: 24px;
+}
+
+.aicentral-user-header h1 {
+    margin: 0 0 8px 0;
+    font-size: 28px;
+    font-weight: 700;
+    color: #333;
+}
+
+.aicentral-header-subtitle {
+    margin: 0;
+    font-size: 15px;
+    color: #666;
+}
+
+/* Info Banner */
+.aicentral-info-banner {
+    display: flex;
+    gap: 16px;
+    padding: 16px 20px;
+    background: #e0f2fe;
+    border: 1px solid #7dd3fc;
+    border-radius: 8px;
+    margin-bottom: 24px;
+}
+
+.aicentral-info-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+}
+
+.aicentral-info-content {
+    font-size: 14px;
+    line-height: 1.6;
+    color: #0c4a6e;
+}
+
+/* Actions Bar */
+.aicentral-actions-bar {
+    margin-bottom: 24px;
+}
+
+/* Keys Container */
+.aicentral-keys-container {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+.aicentral-provider-group {
+    background: white;
+    border: 1px solid #e1e4e8;
+    border-radius: 12px;
+    padding: 24px;
+}
+
+.aicentral-provider-group-title {
+    margin: 0 0 20px 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: #333;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #e1e4e8;
+}
+
+.aicentral-keys-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+/* Key Card */
+.aicentral-key-card {
+    background: #f8f9fa;
+    border: 2px solid #e1e4e8;
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    transition: all 0.2s;
+}
+
+.aicentral-key-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.aicentral-key-card.inactive {
+    opacity: 0.6;
+    border-color: #cbd5e0;
+}
+
+.aicentral-key-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.aicentral-key-name {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #333;
+}
+
+.aicentral-key-prefix {
+    font-size: 12px;
+    color: #666;
+    font-family: monospace;
+    margin-top: 4px;
+}
+
+.aicentral-default-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: #fbbf24;
+    color: #78350f;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.aicentral-key-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.aicentral-key-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+}
+
+.aicentral-key-label {
+    color: #666;
+    font-weight: 500;
+}
+
+.aicentral-status-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+}
+
+.aicentral-status-active {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.aicentral-status-inactive {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.aicentral-test-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 4px;
+    text-transform: capitalize;
+}
+
+.aicentral-test-success {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.aicentral-test-failed {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.aicentral-test-untested {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+.aicentral-key-footer {
+    display: flex;
+    gap: 6px;
+    padding-top: 12px;
+    border-top: 1px solid #e1e4e8;
+    flex-wrap: wrap;
+}
+
+/* Buttons */
+.aicentral-btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 14px;
+}
+
+.aicentral-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.aicentral-btn-xs {
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.aicentral-btn-secondary {
+    background: white;
+    color: #333;
+    border: 1px solid #e1e4e8;
+}
+
+.aicentral-btn-secondary:hover {
+    background: #f8f9fa;
+    border-color: #667eea;
+}
+
+.aicentral-btn-success {
+    background: #22c55e;
+    color: white;
+}
+
+.aicentral-btn-success:hover {
+    background: #16a34a;
+}
+
+.aicentral-btn-warning {
+    background: #f59e0b;
+    color: white;
+}
+
+.aicentral-btn-warning:hover {
+    background: #d97706;
+}
+
+.aicentral-btn-danger {
+    background: #ef4444;
+    color: white;
+}
+
+.aicentral-btn-danger:hover {
+    background: #dc2626;
+}
+
+/* Dialog */
+.aicentral-dialog {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 10000;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.aicentral-dialog-content {
+    background: white;
+    border-radius: 12px;
+    max-width: 500px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.aicentral-dialog-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e1e4e8;
+}
+
+.aicentral-dialog-header h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.aicentral-dialog-close {
+    background: none;
+    border: none;
+    font-size: 28px;
+    color: #999;
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.aicentral-dialog-close:hover {
+    background: #f8f9fa;
+    color: #333;
+}
+
+.aicentral-dialog-body {
+    padding: 24px;
+}
+
+.aicentral-dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 20px 24px;
+    border-top: 1px solid #e1e4e8;
+    background: #f8f9fa;
+}
+
+/* Form Elements */
+.aicentral-form-group {
+    margin-bottom: 20px;
+}
+
+.aicentral-form-group label {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 8px;
+}
+
+.aicentral-form-control {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.aicentral-form-control:focus {
+    border-color: #667eea;
+}
+
+.aicentral-field-help {
+    display: block;
+    font-size: 12px;
+    color: #999;
+    margin-top: 4px;
+    font-style: italic;
+}
+
+.aicentral-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.aicentral-checkbox-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+/* Empty State */
+.aicentral-empty {
+    text-align: center;
+    padding: 60px 20px;
+    color: #999;
+    font-size: 16px;
+    background: white;
+    border: 1px solid #e1e4e8;
+    border-radius: 8px;
+}
+
+/* Loading */
+.aicentral-loading {
+    text-align: center;
+    padding: 60px 20px;
+    color: #999;
+    font-size: 16px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .aicentral-keys-grid {
+        grid-template-columns: 1fr;
+    }
+}

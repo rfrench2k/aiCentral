@@ -1,0 +1,456 @@
+/**
+ * AI Model Comparison Tool - Compact Styling with Sliding Panel
+ * Optimized for single-screen view with collapsible setup panel
+ */
+
+/* ========== SLIDING PANEL STYLES ========== */
+
+/* Setup Panel States */
+.setup-panel-expanded {
+    transition: all 0.3s ease-in-out;
+}
+
+.setup-panel-collapsed {
+    width: 0 !important;
+    padding: 0 !important;
+    overflow: hidden;
+    opacity: 0;
+    max-width: 0 !important;
+    flex: 0 0 0 !important;
+}
+
+/* Panel Strip (vertical collapsed button) */
+.panel-strip {
+    width: 40px;
+    position: fixed;
+    left: 0;
+    top: 100px;
+    height: calc(100vh - 100px);
+    background: #f8f9fa;
+    border-right: 2px solid #dee2e6;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.panel-strip button {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    border: none;
+    background: transparent;
+    padding: 0.5rem;
+}
+
+.vertical-text {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #0d6efd;
+}
+
+/* Results Area States */
+.results-area-normal {
+    transition: all 0.3s ease-in-out;
+}
+
+.results-area-expanded {
+    width: calc(100% - 40px) !important;
+    max-width: calc(100% - 40px) !important;
+    flex: 0 0 calc(100% - 40px) !important;
+    margin-left: 40px;
+}
+
+/* Three-Tab Prompt Display */
+.prompt-display {
+    background: #f8f9fa;
+    border: none;
+    padding: 1rem;
+    max-height: 300px;
+    overflow-y: auto;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Compact pre blocks - NO SCROLL */
+.compact-pre {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+    padding: 0.5rem;
+    /* NO max-height, NO overflow - let it expand */
+    font-size: 0.75rem;
+    line-height: 1.4;
+    margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Horizontal Layout - Side by Side Columns */
+.model-result-column {
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    background: white;
+}
+
+.model-result-column.success {
+    border-left: 4px solid #198754;
+}
+
+.model-result-column.failed {
+    border-left: 4px solid #dc3545;
+}
+
+/* Original request column - distinct blue border */
+.model-result-column.original {
+    border-left: 4px solid #0d6efd;
+    background: #f8f9ff;
+}
+
+/* Vertical Layout - Stacked Cards */
+.model-result-card {
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 1.5rem;
+    background: white;
+    margin-bottom: 1.5rem;
+}
+
+.model-result-card.success {
+    border-left: 4px solid #198754;
+}
+
+.model-result-card.failed {
+    border-left: 4px solid #dc3545;
+}
+
+/* Metrics Badges */
+.metrics-bar {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: #f8f9fa;
+    border-radius: 0.375rem;
+}
+
+.metric-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.metric-label {
+    font-size: 0.75rem;
+    color: #6c757d;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.metric-value {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-top: 0.25rem;
+}
+
+/* Color coding for metrics */
+.metric-best {
+    color: #198754;
+}
+
+.metric-middle {
+    color: #ffc107;
+}
+
+.metric-worst {
+    color: #dc3545;
+}
+
+.badge-best {
+    background-color: #198754 !important;
+}
+
+.badge-middle {
+    background-color: #ffc107 !important;
+    color: #000 !important;
+}
+
+.badge-worst {
+    background-color: #dc3545 !important;
+}
+
+/* Response Display */
+.response-content {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    max-height: 500px;
+    overflow-y: auto;
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+.response-content pre {
+    background: transparent;
+    border: none;
+    margin: 0;
+    padding: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+/* Table Display for JSON Arrays */
+.response-table {
+    width: 100%;
+    font-size: 0.85rem;
+    overflow-x: auto;
+}
+
+.response-table table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.response-table th {
+    background: #0d6efd;
+    color: white;
+    padding: 0.5rem;
+    text-align: left;
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+}
+
+.response-table td {
+    padding: 0.5rem;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.response-table tr:nth-child(even) {
+    background: #f8f9fa;
+}
+
+/* JSON Toggle Button */
+.json-toggle-btn {
+    margin-top: 0.5rem;
+}
+
+/* COMPACT Model Selection - NO SCROLL */
+.compact-model-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+    /* NO max-height, NO overflow - let it expand naturally */
+}
+
+.provider-group {
+    margin-bottom: 0.5rem;
+    padding: 0.5rem;
+    background: #f8f9fa;
+    border-radius: 0.25rem;
+}
+
+.provider-group-title {
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #0d6efd;
+    margin-bottom: 0.25rem;
+    padding-bottom: 0.25rem;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.model-checkbox {
+    padding: 0.25rem 0.5rem;
+    margin: 0;
+}
+
+.model-checkbox label {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    font-size: 0.85rem;
+}
+
+.model-checkbox input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.model-info {
+    flex-grow: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.model-cost {
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.model-name {
+    font-weight: 600;
+    color: #212529;
+}
+
+.model-tier {
+    font-size: 0.65rem;
+    color: #6c757d;
+    padding: 0.125rem 0.375rem;
+}
+
+/* Error Display */
+.error-message {
+    background: #f8d7da;
+    border: 1px solid #f5c2c7;
+    color: #842029;
+    padding: 1rem;
+    border-radius: 0.375rem;
+    margin-top: 1rem;
+}
+
+/* Progress Indicators */
+.progress-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    margin: 0.25rem;
+    font-size: 0.9rem;
+}
+
+.progress-indicator.running {
+    background: #cfe2ff;
+    color: #084298;
+}
+
+.progress-indicator.completed {
+    background: #d1e7dd;
+    color: #0f5132;
+}
+
+.progress-indicator.failed {
+    background: #f8d7da;
+    color: #842029;
+}
+
+/* Responsive Table Handling */
+.table-wrapper {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+/* Synchronized Scrolling for Vertical Mode */
+.sync-scroll-container {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+/* Horizontal Layout - Ensure Columns Don't Collapse */
+#horizontal-results > .col {
+    min-width: 300px;
+}
+
+/* Model Header */
+.model-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid #dee2e6;
+}
+
+.model-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #212529;
+}
+
+.model-provider {
+    font-size: 0.85rem;
+    color: #6c757d;
+}
+
+.status-badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 1rem;
+}
+
+/* Loading States */
+.loading-skeleton {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: loading 1.5s ease-in-out infinite;
+}
+
+@keyframes loading {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+/* Custom Scrollbar for Better UX */
+.response-content::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.response-content::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.response-content::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+.response-content::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+/* Print Styles */
+@media print {
+    .card-header,
+    .btn,
+    #progress-section {
+        display: none !important;
+    }
+
+    .model-result-column,
+    .model-result-card {
+        page-break-inside: avoid;
+    }
+}
+
+/* ========== SMALL TABS FOR PROMPT/RESPONSE ========== */
+.nav-tabs-sm .nav-link {
+    padding: 0.25rem 0.75rem;
+    font-size: 0.875rem;
+}
+
+.nav-tabs-sm {
+    border-bottom: 1px solid #dee2e6;
+    margin-bottom: 0;
+}
+
+/* Prompt expand button styling */
+#original-prompt-expand-btn {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+}

@@ -1,0 +1,341 @@
+/**
+ * AI Central User Usage Dashboard - Styles
+ */
+
+/* User Container */
+.aicentral-user-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px;
+}
+
+.aicentral-user-header {
+    margin-bottom: 24px;
+}
+
+.aicentral-user-header h1 {
+    margin: 0 0 8px 0;
+    font-size: 28px;
+    font-weight: 700;
+    color: #333;
+}
+
+.aicentral-header-subtitle {
+    margin: 0;
+    font-size: 15px;
+    color: #666;
+}
+
+/* Filters Bar */
+.aicentral-filters-bar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.aicentral-date-filter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.aicentral-date-filter label {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+}
+
+.aicentral-date-input {
+    padding: 10px 12px;
+    border: 1px solid #e1e4e8;
+    border-radius: 8px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.aicentral-date-input:focus {
+    border-color: #667eea;
+}
+
+.aicentral-filter-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.aicentral-filter-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+/* Tier Info */
+.aicentral-tier-info {
+    background: white;
+    border: 2px solid #667eea;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+.aicentral-tier-header {
+    margin-bottom: 20px;
+}
+
+.aicentral-tier-name {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+    color: #667eea;
+}
+
+.aicentral-tier-description {
+    margin: 8px 0 0 0;
+    font-size: 14px;
+    color: #666;
+}
+
+.aicentral-tier-limits {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.aicentral-limit-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.aicentral-limit-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+}
+
+.aicentral-limit-label {
+    font-weight: 600;
+    color: #333;
+}
+
+.aicentral-limit-value {
+    font-weight: 600;
+    color: #667eea;
+}
+
+.aicentral-progress-bar {
+    height: 8px;
+    background: #e1e4e8;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.aicentral-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    transition: width 0.3s ease;
+}
+
+.aicentral-unlimited-notice {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 20px;
+    background: #f0fdf4;
+    border: 1px solid #86efac;
+    border-radius: 8px;
+    color: #166534;
+}
+
+/* Usage Stats */
+.aicentral-usage-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.aicentral-usage-stat-card {
+    background: white;
+    border: 2px solid #e1e4e8;
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+    transition: all 0.2s;
+}
+
+.aicentral-usage-stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.aicentral-stat-label {
+    font-size: 13px;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.aicentral-stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: #333;
+}
+
+.aicentral-stat-cost {
+    color: #22c55e;
+}
+
+/* Usage Sections */
+.aicentral-usage-sections {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 24px;
+}
+
+.aicentral-usage-section {
+    background: white;
+    border: 1px solid #e1e4e8;
+    border-radius: 12px;
+    padding: 20px;
+}
+
+.aicentral-usage-section-wide {
+    grid-column: 1 / -1;
+}
+
+.aicentral-section-title {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: #333;
+    padding-bottom: 12px;
+    border-bottom: 2px solid #e1e4e8;
+}
+
+.aicentral-usage-table-container {
+    overflow-x: auto;
+}
+
+/* Usage Table */
+.aicentral-usage-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.aicentral-usage-table thead {
+    background: #f8f9fa;
+}
+
+.aicentral-usage-table th {
+    padding: 10px 12px;
+    text-align: left;
+    font-size: 12px;
+    font-weight: 700;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid #e1e4e8;
+}
+
+.aicentral-usage-table tbody tr {
+    border-bottom: 1px solid #e1e4e8;
+}
+
+.aicentral-usage-table tbody tr:hover {
+    background: #f8f9fa;
+}
+
+.aicentral-usage-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.aicentral-usage-table td {
+    padding: 10px 12px;
+    color: #333;
+}
+
+.aicentral-status-badge-success {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: #d1fae5;
+    color: #065f46;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.aicentral-status-badge-failed {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: #fee2e2;
+    color: #991b1b;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+/* Empty States */
+.aicentral-loading {
+    text-align: center;
+    padding: 40px 20px;
+    color: #999;
+    font-size: 14px;
+}
+
+.aicentral-empty-small {
+    text-align: center;
+    padding: 30px 20px;
+    color: #999;
+    font-size: 13px;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+    .aicentral-usage-sections {
+        grid-template-columns: 1fr;
+    }
+
+    .aicentral-usage-section-wide {
+        grid-column: 1;
+    }
+}
+
+@media (max-width: 768px) {
+    .aicentral-usage-stats {
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    }
+
+    .aicentral-tier-limits {
+        grid-template-columns: 1fr;
+    }
+
+    .aicentral-filters-bar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .aicentral-date-filter {
+        justify-content: space-between;
+    }
+
+    .aicentral-usage-table {
+        font-size: 12px;
+    }
+
+    .aicentral-usage-table th,
+    .aicentral-usage-table td {
+        padding: 8px;
+    }
+}
