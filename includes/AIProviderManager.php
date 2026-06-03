@@ -425,8 +425,22 @@ class AIProviderManager {
         $rawRequest      = $rawRequest      === null ? null : mb_convert_encoding($rawRequest,      'UTF-8', 'UTF-8');
         $completeResponse = $completeResponse === null ? null : mb_convert_encoding($completeResponse, 'UTF-8', 'UTF-8');
 
+        // prompt_text / response_text are TEXT columns (65,535-byte cap). Large
+        // model output (e.g. an event-dense PDF extraction) can exceed that, so
+        // truncate the logged copy here; otherwise the usage-log INSERT fails and
+        // aborts an otherwise-successful request. (prompt_to_ai / complete_ai_response
+        // are MEDIUMTEXT and don't need this.)
+        if ($promptText !== null && strlen($promptText) > 65000) {
+            $promptText = mb_strcut($promptText, 0, 65000, 'UTF-8') . ' …[truncated]';
+        }
+        if ($responseText !== null && strlen($responseText) > 65000) {
+            $responseText = mb_strcut($responseText, 0, 65000, 'UTF-8') . ' …[truncated]';
+        }
+
         $stmt->bind_param(
-            'sssiisiiidddiissssssssid',
+            // run_id (pos 14) is varchar(50), not int -- bind it as a string so a
+            // non-numeric run_id isn't silently cast to 0.
+            'sssiisiiidddisssssssssid',
             $userId,
             $programId,
             $featureCode,

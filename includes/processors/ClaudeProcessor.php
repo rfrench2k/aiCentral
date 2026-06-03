@@ -22,6 +22,7 @@ class ClaudeProcessor implements BaseProcessor {
      * Claude API format:
      * - System prompt: Top-level "system" field
      * - Images: messages[].content[] with type="image", source object
+     * - Documents (PDF): messages[].content[] with type="document", source object
      * - Tools: tools[] array with type like "web_search_20250305"
      * - Max tokens: "max_tokens" field
      *
@@ -72,6 +73,22 @@ class ClaudeProcessor implements BaseProcessor {
                 ];
             }
             aiCentral_logMessage("ClaudeProcessor: Added " . count($options['images']) . " images", 'DEBUG');
+        }
+
+        // Add documents (e.g. PDFs) if present. Claude reads the PDF natively,
+        // including its text layer and visual layout / scanned pages.
+        if (!empty($options['documents']) && is_array($options['documents'])) {
+            foreach ($options['documents'] as $doc) {
+                $content[] = [
+                    'type' => 'document',
+                    'source' => [
+                        'type' => 'base64',
+                        'media_type' => $doc['media_type'] ?? 'application/pdf',
+                        'data' => $doc['data']
+                    ]
+                ];
+            }
+            aiCentral_logMessage("ClaudeProcessor: Added " . count($options['documents']) . " documents", 'DEBUG');
         }
 
         // Add text prompt
