@@ -44,6 +44,9 @@ function aiUsage_init() {
     // Set up tab change listeners
     document.querySelectorAll('#usage-tabs button[data-bs-toggle="tab"]').forEach(tab => {
         tab.addEventListener('shown.bs.tab', function(event) {
+            // Keep the URL in sync with the active tab so a refresh or a
+            // shared/bookmarked link lands directly on this tab.
+            aiUsage_updateTabUrl(event.target.id);
             aiUsage_loadData();
         });
     });
@@ -51,8 +54,47 @@ function aiUsage_init() {
     // Restore filters from localStorage
     aiUsage_restoreFilters();
 
+    // If the URL points at a specific tab (e.g. ?tab=trends), open it before
+    // we load data so the right tab's data is what gets fetched.
+    aiUsage_restoreTabFromUrl();
+
     // Load initial data
     aiUsage_applyFilters();
+}
+
+/**
+ * Write the active tab into the URL as ?tab=<slug>.
+ * Slug is the tab button id minus the "-tab" suffix (e.g. by-feature-tab -> by-feature).
+ * Overview is the default, so its param is removed to keep the URL clean.
+ */
+function aiUsage_updateTabUrl(tabButtonId) {
+    if (!tabButtonId) return;
+    const slug = tabButtonId.replace(/-tab$/, '');
+    const url = new URL(window.location);
+    if (slug === 'overview') {
+        url.searchParams.delete('tab');
+    } else {
+        url.searchParams.set('tab', slug);
+    }
+    window.history.replaceState({}, '', url);
+    console.log('[aiUsage] active tab ->', slug);
+}
+
+/**
+ * On page load, read ?tab=<slug> from the URL and activate that tab.
+ */
+function aiUsage_restoreTabFromUrl() {
+    const slug = new URLSearchParams(window.location.search).get('tab');
+    if (!slug) return;
+    const btn = document.getElementById(slug + '-tab');
+    if (!btn) {
+        console.log('[aiUsage] unknown tab in URL, ignoring:', slug);
+        return;
+    }
+    // Show the tab without firing the data load here; aiUsage_applyFilters()
+    // runs right after init and loads data for whatever tab is active.
+    bootstrap.Tab.getOrCreateInstance(btn).show();
+    console.log('[aiUsage] restored tab from URL ->', slug);
 }
 
 /**
@@ -614,7 +656,7 @@ async function aiUsage_loadUsageTable() {
     } catch (error) {
         console.error('Error loading usage table:', error);
         document.getElementById('usage-table-body').innerHTML =
-            '<tr><td colspan="11" class="text-center text-danger py-4">Error loading data</td></tr>';
+            '<tr><td colspan="13" class="text-center text-danger py-4">Error loading data</td></tr>';
     }
 }
 
@@ -625,7 +667,7 @@ function aiUsage_renderTable(records) {
     const tbody = document.getElementById('usage-table-body');
 
     if (records.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="12" class="text-center py-4">No records found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="13" class="text-center py-4">No records found</td></tr>';
         return;
     }
 
@@ -641,6 +683,14 @@ function aiUsage_renderTable(records) {
             ? `<span class="badge bg-info">${toolCount}</span>`
             : '<span class="text-muted">-</span>';
 
+        // Prompt-cache tokens: read / write. These are billed separately from the
+        // Tokens column (which is input+output) and are reflected in Cost.
+        const cacheRead = record.cache_read_tokens || 0;
+        const cacheWrite = record.cache_write_tokens || 0;
+        const cacheDisplay = (cacheRead || cacheWrite)
+            ? `${aiUsage_formatNumber(cacheRead)}<span class="text-muted"> / </span>${aiUsage_formatNumber(cacheWrite)}`
+            : '<span class="text-muted">-</span>';
+
         html += `
             <tr onclick="aiUsage_showDetail(${record.usage_id})" style="cursor: pointer;">
                 <td class="small">${aiUsage_formatDateTime(record.request_timestamp)}</td>
@@ -650,6 +700,7 @@ function aiUsage_renderTable(records) {
                 <td class="small">${aiUsage_escapeHtml(record.provider_name)}</td>
                 <td class="small">${aiUsage_escapeHtml(record.model_display_name)}</td>
                 <td class="text-end small">${aiUsage_formatNumber(record.total_tokens)}</td>
+                <td class="text-end small">${cacheDisplay}</td>
                 <td class="text-end small">${toolDisplay}</td>
                 <td class="text-end small">$${parseFloat(record.total_cost_usd).toFixed(4)}</td>
                 <td class="text-end small">${record.response_time_ms ? aiUsage_formatResponseTime(record.response_time_ms) : 'N/A'}</td>
