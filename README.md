@@ -6,7 +6,7 @@ A PHP/MySQL hub that fronts every major AI provider for a fleet of apps. One cal
 
 **One function call, any provider.** Apps call `ai_makeRequest(['user_id', 'program_id', 'feature_code', 'prompt', ...])`. AI Central picks the right model for the user's tier, picks the system or user-supplied API key, calls the provider, returns the response. Supports Anthropic Claude, OpenAI, Google Gemini, xAI Grok, Moonshot Kimi, Ollama (self-hosted), and the Claude Code CLI.
 
-**Cost tracked per call.** Every request lands in `ai_usage_log` with input tokens, output tokens, thinking tokens, tool calls, response time, and dollar cost broken down by component. Admin dashboards roll this up per user, per feature, per program, per provider, per model, with trends, outliers, and date-range filtering.
+**Cost tracked per call.** Every request lands in `ai_usage_log` with input tokens, output tokens, thinking tokens, tool calls, prompt-cache reads and writes, response time, and dollar cost broken down by component (prompt caching is priced in too — reads at a fraction of input, writes at a premium). Admin dashboards roll this up per user, per feature, per program, per provider, per model, with trends, outliers, and date-range filtering.
 
 **Swap models per feature, per tier, without touching code.** Each feature has a default model plus per-tier overrides — free tier can route to Haiku, pro to Sonnet, unlimited to Opus. The app keeps making the same call; admin changes the model assignment in the UI. Same for max output tokens and capability allowances (web search, vision, file access).
 

@@ -436,6 +436,8 @@ function getUsageData() {
                     ul.feature_code,
                     ul.request_timestamp,
                     ul.total_tokens,
+                    ul.cache_read_tokens,
+                    ul.cache_write_tokens,
                     ul.tool_call_count,
                     ul.total_cost_usd,
                     ul.response_time_ms,

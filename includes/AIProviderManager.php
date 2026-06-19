@@ -216,14 +216,18 @@ class AIProviderManager {
                         'total_cost_usd'     => $cliTotal,
                     ];
                 } else {
-                    // Standard path: compute from ai_models per-million pricing
+                    // Standard path: compute from ai_models per-million pricing,
+                    // including prompt-cache read/write tokens.
                     $costBreakdown = aiCentral_calculateRequestCost(
                         $this->model,
                         $result['usage']['input_tokens'],
                         $result['usage']['output_tokens'],
                         $toolCallsForCostCalc,
                         0, // tool_result_tokens
-                        $thinkingTokens
+                        $thinkingTokens,
+                        $result['usage']['cache_read_tokens']     ?? 0,
+                        $result['usage']['cache_write_5m_tokens']  ?? 0,
+                        $result['usage']['cache_write_1h_tokens']  ?? 0
                     );
                 }
 
@@ -237,6 +241,8 @@ class AIProviderManager {
                 ];
 
                 // Log usage
+                $cacheReadTokens  = $result['usage']['cache_read_tokens']  ?? 0;
+                $cacheWriteTokens = $result['usage']['cache_write_tokens'] ?? 0;
                 $this->logUsage(
                     $result['usage']['input_tokens'],
                     $result['usage']['output_tokens'],
@@ -252,7 +258,9 @@ class AIProviderManager {
                     $toolCalls,
                     $cost['tool_cost'],
                     $thinkingTokens,
-                    $result['raw_response_data']
+                    $result['raw_response_data'],
+                    $cacheReadTokens,
+                    $cacheWriteTokens
                 );
 
                 return [
@@ -384,15 +392,15 @@ class AIProviderManager {
     /**
      * Log usage to database
      */
-    private function logUsage($inputTokens, $outputTokens, $cost, $responseTime, $status, $error, $runId, $promptText, $responseText, $metadata, $rawRequest, $toolCalls = [], $toolCost = 0.0, $thinkingTokens = 0, $rawResponse = null) {
+    private function logUsage($inputTokens, $outputTokens, $cost, $responseTime, $status, $error, $runId, $promptText, $responseText, $metadata, $rawRequest, $toolCalls = [], $toolCost = 0.0, $thinkingTokens = 0, $rawResponse = null, $cacheReadTokens = 0, $cacheWriteTokens = 0) {
         $conn = ai_getDBConnection();
 
         $sql = "INSERT INTO ai_usage_log (
             user_id, program_id, feature_code, provider_id, model_id,
             key_type, input_tokens, output_tokens, thinking_tokens, input_cost_usd, output_cost_usd, thinking_cost_usd,
             response_time_ms, run_id, status, error_message, prompt_text, response_text, prompt_to_ai, complete_ai_response, request_metadata,
-            tool_calls_json, tool_call_count, tool_call_cost_usd
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            tool_calls_json, tool_call_count, tool_call_cost_usd, cache_read_tokens, cache_write_tokens
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         $stmt = $conn->prepare($sql);
 
@@ -440,7 +448,7 @@ class AIProviderManager {
         $stmt->bind_param(
             // run_id (pos 14) is varchar(50), not int -- bind it as a string so a
             // non-numeric run_id isn't silently cast to 0.
-            'sssiisiiidddisssssssssid',
+            'sssiisiiidddisssssssssidii',
             $userId,
             $programId,
             $featureCode,
@@ -464,7 +472,9 @@ class AIProviderManager {
             $metadataJson,
             $toolCallsJson,
             $toolCallCount,
-            $toolCost
+            $toolCost,
+            $cacheReadTokens,
+            $cacheWriteTokens
         );
 
         if (!$stmt->execute()) {

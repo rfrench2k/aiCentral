@@ -306,6 +306,8 @@ CREATE TABLE `ai_usage_log` (
   `tool_result_cost_usd` decimal(10,6) DEFAULT '0.000000',
   `thinking_tokens` int DEFAULT '0',
   `thinking_cost_usd` decimal(10,6) DEFAULT '0.000000',
+  `cache_read_tokens` int NOT NULL DEFAULT '0',
+  `cache_write_tokens` int NOT NULL DEFAULT '0',
   PRIMARY KEY (`usage_id`),
   KEY `idx_user_program` (`user_id`,`program_id`),
   KEY `idx_timestamp` (`request_timestamp`),

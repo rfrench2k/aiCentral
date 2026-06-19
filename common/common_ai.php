@@ -117,7 +117,7 @@ function aiCentral_getLastInsertId($conn) {
  * @param int $thinkingTokens Extended thinking tokens (Claude Opus)
  * @return array Cost breakdown with all components
  */
-function aiCentral_calculateRequestCost($modelCode, $inputTokens, $outputTokens, $toolCalls = [], $toolResultTokens = 0, $thinkingTokens = 0) {
+function aiCentral_calculateRequestCost($modelCode, $inputTokens, $outputTokens, $toolCalls = [], $toolResultTokens = 0, $thinkingTokens = 0, $cacheReadTokens = 0, $cacheWrite5mTokens = 0, $cacheWrite1hTokens = 0) {
     $conn = ai_getDBConnection();
 
     // Get model pricing
@@ -147,6 +147,15 @@ function aiCentral_calculateRequestCost($modelCode, $inputTokens, $outputTokens,
 
     // Calculate token costs
     $inputCost = ($inputTokens / 1000000) * $model['input_cost_per_million'];
+
+    // Prompt-cache costs, priced off the input rate: reads ~0.1x, 5-minute writes
+    // ~1.25x, 1-hour writes ~2x. Folded into the input cost so per-row and summary
+    // totals reflect the true charge.
+    $inPerM = $model['input_cost_per_million'];
+    $cacheCost = (($cacheReadTokens    / 1000000) * $inPerM * 0.10)
+               + (($cacheWrite5mTokens / 1000000) * $inPerM * 1.25)
+               + (($cacheWrite1hTokens / 1000000) * $inPerM * 2.00);
+    $inputCost += $cacheCost;
     $outputCost = ($outputTokens / 1000000) * $model['output_cost_per_million'];
     $thinkingCost = $thinkingTokens > 0 ? ($thinkingTokens / 1000000) * ($model['thinking_cost_per_million'] ?? 0) : 0.0;
     $toolResultCost = $toolResultTokens > 0 ? ($toolResultTokens / 1000000) * $model['input_cost_per_million'] : 0.0;
@@ -194,6 +203,7 @@ function aiCentral_calculateRequestCost($modelCode, $inputTokens, $outputTokens,
         'tool_call_cost_usd' => round($toolCost, 6),
         'tool_result_cost_usd' => round($toolResultCost, 6),
         'thinking_cost_usd' => round($thinkingCost, 6),
+        'cache_cost_usd' => round($cacheCost, 6),
         'total_cost_usd' => round($totalCost, 6)
     ];
 }

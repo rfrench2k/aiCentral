@@ -369,6 +369,7 @@ if ($conn) {
                         <th>Provider</th>
                         <th>Model</th>
                         <th class="text-end">Tokens</th>
+                        <th class="text-end">Cache (r/w)</th>
                         <th class="text-end">Tools</th>
                         <th class="text-end">Cost</th>
                         <th class="text-end">Response</th>
