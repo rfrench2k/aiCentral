@@ -393,6 +393,7 @@ class AIProviderManager {
      * Log usage to database
      */
     private function logUsage($inputTokens, $outputTokens, $cost, $responseTime, $status, $error, $runId, $promptText, $responseText, $metadata, $rawRequest, $toolCalls = [], $toolCost = 0.0, $thinkingTokens = 0, $rawResponse = null, $cacheReadTokens = 0, $cacheWriteTokens = 0) {
+      try {
         $conn = ai_getDBConnection();
 
         $sql = "INSERT INTO ai_usage_log (
@@ -481,6 +482,11 @@ class AIProviderManager {
             aiCentral_logMessage("Failed to log usage: " . $stmt->error, 'ERROR');
         }
         $stmt->close();
+      } catch (\Throwable $e) {
+        // Best-effort: usage logging must NEVER fail an otherwise-successful AI
+        // request (e.g. a member not yet synced into aicore.users). Log and move on.
+        aiCentral_logMessage("Usage logging skipped: " . $e->getMessage(), 'WARNING');
+      }
     }
 
     /**
