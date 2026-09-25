@@ -40,14 +40,16 @@ class ClaudeProcessor implements BaseProcessor {
             'max_tokens' => $options['max_tokens'] ?? 4096,
         ];
 
-        // Add optional parameters
-        if (isset($options['temperature'])) {
+        // Add optional parameters. Opus 4.7 and later, Sonnet 5 and Fable reject the
+        // sampling parameters (400), so they are only sent to the models that take them.
+        $acceptsSampling = !preg_match('/^claude-(opus-4-[78]|opus-5|sonnet-5|fable|mythos)/', $modelCode);
+        if ($acceptsSampling && isset($options['temperature'])) {
             $request['temperature'] = (float)$options['temperature'];
         }
-        if (isset($options['top_p'])) {
+        if ($acceptsSampling && isset($options['top_p'])) {
             $request['top_p'] = (float)$options['top_p'];
         }
-        if (isset($options['top_k'])) {
+        if ($acceptsSampling && isset($options['top_k'])) {
             $request['top_k'] = (int)$options['top_k'];
         }
 
