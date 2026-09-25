@@ -232,17 +232,13 @@ class ClaudeCliProcessor implements BaseProcessor {
             }
         }
 
-        // Provide ANTHROPIC_API_KEY as a fallback auth method. Claude CLI prefers
-        // OAuth (subscription, zero per-token cost) when the credentials file is
-        // readable, and falls back to ANTHROPIC_API_KEY (API billing) only when
-        // OAuth isn't available — which is the case when PHP runs under IIS as
-        // a service account that can't read the Administrator's keychain. The
-        // SYSTEM-owned scheduled task continues to use OAuth.
-        $apiKey = getenv('AICORE_ANTHROPIC_API_KEY') ?: '';
-        if ($apiKey !== '' && !defined('ANTHROPIC_API_KEY') /* false-positive guard */) {
-            $envBackup['ANTHROPIC_API_KEY'] = getenv('ANTHROPIC_API_KEY');
-            putenv("ANTHROPIC_API_KEY=$apiKey");
-        }
+        // The claude_cli provider runs on the logged-in Claude subscription ONLY,
+        // never the API key. Current CLI versions use ANTHROPIC_API_KEY instead of
+        // the subscription whenever it is present, so make sure it is not set for
+        // the subprocess. If the login is unavailable the CLI fails with an error
+        // rather than silently billing the API.
+        $envBackup['ANTHROPIC_API_KEY'] = getenv('ANTHROPIC_API_KEY');
+        putenv('ANTHROPIC_API_KEY');
 
         $stdout = '';
         $stderr = '';
