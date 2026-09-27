@@ -21,6 +21,7 @@ require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/KeyManager.php';
 require_once __DIR__ . '/../common/aPRIV_DB_AI.php';
 require_once __DIR__ . '/../common/common_ai.php';
+require_once __DIR__ . '/ClaudeCliRunner.php';
 
 class AIDeepInsights {
 
@@ -349,81 +350,34 @@ class AIDeepInsights {
      * @return string JSON output from Claude
      */
     private function executeClaude($prompt) {
-        // Create temp prompt file
-        $promptFile = $this->tempDir . 'prompt_' . time() . '_' . uniqid() . '.txt';
-        file_put_contents($promptFile, $prompt);
-
-        aiCentral_logMessage("Created prompt file: {$promptFile}", 'DEBUG');
-
-        // Build Claude command using shell_exec with < file redirect. CLI path
-        // is configurable via AICORE_CLAUDE_CLI_PATH (default 'claude').
+        // Subscription login only, never the API. aiCentral_claudeCliRun() runs
+        // the CLI as the owner: directly from a scheduled task, or through the
+        // "AI Central - CLI Runner" task when called from a web request.
         $allowedTools = $this->buildAllowedTools();
-        $cliPath = getenv('AICORE_CLAUDE_CLI_PATH') ?: 'claude';
-        $command = escapeshellarg($cliPath)
-                 . " --print --output-format json --dangerously-skip-permissions"
-                 . " --allowed-tools {$allowedTools}"
-                 . " < " . escapeshellarg($promptFile) . " 2>&1";
+        $args = "--print --output-format json --dangerously-skip-permissions --allowed-tools {$allowedTools}";
 
-        aiCentral_logMessage("Executing Claude CLI: {$command}", 'DEBUG');
+        aiCentral_logMessage("Executing Claude CLI: claude {$args}", 'DEBUG');
 
-        // Point HOME/USERPROFILE/APPDATA at the directory where Claude CLI
-        // credentials live. IIS runs as IUSR which has no home directory, so
-        // AICORE_CLAUDE_CLI_HOME must be set to a directory containing the
-        // Claude credentials (.claude/.credentials.json with valid OAuth).
-        $authHome = getenv('AICORE_CLAUDE_CLI_HOME') ?: ($_SERVER['DOCUMENT_ROOT'] ?? dirname(dirname(dirname(__DIR__))));
-
-        $oldHome = getenv('HOME');
-        $oldUserProfile = getenv('USERPROFILE');
-        $oldAppData = getenv('APPDATA');
-
-        putenv("HOME=$authHome");
-        putenv("USERPROFILE=$authHome");
-        putenv("APPDATA=$authHome");
-
-        // Execute command
         $startTime = microtime(true);
-        $output = shell_exec($command);
-        $endTime = microtime(true);
-        $duration = round(($endTime - $startTime) * 1000);
+        $r = aiCentral_claudeCliRun($args, $prompt, "AIDeepInsights {$this->featureCode}");
+        $duration = round((microtime(true) - $startTime) * 1000);
 
-        // Restore environment variables
-        $this->restoreEnvVars($oldHome, $oldUserProfile, $oldAppData);
-
-        aiCentral_logMessage("Claude execution completed in {$duration}ms, output length: " . strlen($output ?? ''), 'DEBUG');
-
-        // Delete prompt file
-        if (file_exists($promptFile)) {
-            unlink($promptFile);
+        if ($r['error'] !== null) {
+            throw new Exception($r['error']);
         }
+        // stdout and stderr together, as the old '2>&1' command returned them
+        $output = $r['stdout'] . $r['stderr'];
+
+        aiCentral_logMessage("Claude execution completed in {$duration}ms, output length: " . strlen($output), 'DEBUG');
 
         // Check if command executed successfully
-        if ($output === null || empty(trim($output))) {
+        if (empty(trim($output))) {
             throw new Exception('Claude CLI returned empty response');
         }
 
         return $output;
     }
 
-    /**
-     * Restore environment variables after Claude execution
-     */
-    private function restoreEnvVars($oldHome, $oldUserProfile, $oldAppData) {
-        if ($oldHome !== false) {
-            putenv("HOME=$oldHome");
-        } else {
-            putenv("HOME");
-        }
-        if ($oldUserProfile !== false) {
-            putenv("USERPROFILE=$oldUserProfile");
-        } else {
-            putenv("USERPROFILE");
-        }
-        if ($oldAppData !== false) {
-            putenv("APPDATA=$oldAppData");
-        } else {
-            putenv("APPDATA");
-        }
-    }
 
     /**
      * Extract structured JSON from Claude result text.
