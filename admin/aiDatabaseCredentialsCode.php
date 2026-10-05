@@ -59,7 +59,7 @@ try {
         case 'addCredential':
             $databaseName = trim($_POST['databaseName'] ?? '');
             $permissionLevel = $_POST['permissionLevel'] ?? '';
-            $dbHost = trim($_POST['dbHost'] ?? 'localhost');
+            $dbHost = trim($_POST['dbHost'] ?? 'localhost:3307');
             $dbUsername = trim($_POST['dbUsername'] ?? '');
             $dbPassword = $_POST['dbPassword'] ?? '';
 
@@ -119,7 +119,7 @@ try {
             $credentialId = intval($_POST['credentialId'] ?? 0);
             $databaseName = trim($_POST['databaseName'] ?? '');
             $permissionLevel = $_POST['permissionLevel'] ?? '';
-            $dbHost = trim($_POST['dbHost'] ?? 'localhost');
+            $dbHost = trim($_POST['dbHost'] ?? 'localhost:3307');
             $dbUsername = trim($_POST['dbUsername'] ?? '');
             $dbPassword = $_POST['dbPassword'] ?? '';
 

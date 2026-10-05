@@ -90,7 +90,7 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/ai/common/header_ai.php';
 
                     <div class="mb-3">
                         <label for="dbHost" class="form-label">Database Host *</label>
-                        <input type="text" class="form-control" id="dbHost" name="dbHost" value="localhost" required>
+                        <input type="text" class="form-control" id="dbHost" name="dbHost" value="localhost:3307" required>
                     </div>
 
                     <div class="mb-3">
