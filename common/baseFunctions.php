@@ -12,7 +12,7 @@
  * @return void
  */
 function aiCentral_logMessage($message, $level = 'INFO') {
-    $logFile = __DIR__ . '/../ai.log';
+    $logFile = 'D:/AdvancedVentures/logs/ai/ai.log';
     $timestamp = date('Y-m-d H:i:s');
     $logEntry = "[$timestamp] [$level] $message\n";
 

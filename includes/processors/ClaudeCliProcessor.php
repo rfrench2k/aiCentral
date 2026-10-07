@@ -15,6 +15,10 @@
  * subscription login only, never the API; web requests go through the
  * "AI Central - CLI Runner" task, which runs as the owner.
  *
+ * Images / PDFs (options['images'] = [['media_type', 'data' (base64)], ...]): the CLI takes no attachments, so each
+ * is written to a temporary file and the prompt asks Claude to open it with the Read tool (always allowed then);
+ * the files are deleted when the run ends.
+ *
  * Environment:
  *   AICORE_CLAUDE_CLI_PATH   Path to the `claude` executable. Default 'claude'.
  *   AICORE_CLAUDE_CLI_TIMEOUT  Max seconds to wait for the CLI lock. Default 180.
@@ -40,6 +44,7 @@ class ClaudeCliProcessor implements BaseProcessor {
             'max_tokens'    => $options['max_tokens']    ?? null,
             'json_schema'   => $options['json_schema']   ?? null,
             'allowed_tools' => $options['allowed_tools'] ?? ['Read'],
+            'images'        => $options['images']        ?? [],
         ];
     }
 
@@ -131,6 +136,11 @@ class ClaudeCliProcessor implements BaseProcessor {
         if ($timeout < 10) $timeout = 180;
 
         $promptText = (string)($body['prompt'] ?? '');
+        [$files, $fileNote] = $this->writeAttachments((array)($body['images'] ?? []));
+        if ($fileNote !== '') {
+            $promptText = $fileNote . "\n\n" . $promptText;
+            if (!in_array('Read', (array)$body['allowed_tools'], true)) $body['allowed_tools'][] = 'Read';
+        }
         if (!empty($body['system'])) {
             // Prepend a system block so it is part of the same conversation turn.
             $promptText = "SYSTEM:\n" . $body['system'] . "\n\nUSER:\n" . $promptText;
@@ -159,6 +169,7 @@ class ClaudeCliProcessor implements BaseProcessor {
         // Subscription login only, never the API; runs as the owner (directly,
         // or through the CLI Runner task when called from a web request).
         $r = aiCentral_claudeCliRun($args, $promptText, 'ClaudeCliProcessor ' . $modelCode, max($timeout, 540));
+        foreach ($files as $f) @unlink($f);
         if ($r['error'] !== null) {
             return ['data' => null, 'http_code' => 500, 'error' => $r['error']];
         }
@@ -179,4 +190,28 @@ class ClaudeCliProcessor implements BaseProcessor {
         return ['data' => $decoded, 'http_code' => 200, 'error' => null];
     }
 
+    /**
+     * Writes the images / PDFs to temporary files for the CLI to Read. Returns [paths, the line for the prompt].
+     * Leftovers older than an hour (a run that died) are removed here too.
+     */
+    private function writeAttachments(array $images): array {
+        if (!$images) return [[], ''];
+        $dir = (DIRECTORY_SEPARATOR === '\\' ? 'C:\\Windows\\Temp' : rtrim(sys_get_temp_dir(), '/')) . DIRECTORY_SEPARATOR . 'aicore_claude_cli_files';
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        foreach (glob($dir . DIRECTORY_SEPARATOR . 'att_*') ?: [] as $old) {
+            if (is_file($old) && filemtime($old) < time() - 3600) @unlink($old);
+        }
+        $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp', 'application/pdf' => 'pdf'];
+        $files = [];
+        foreach ($images as $img) {
+            $data = base64_decode((string)($img['data'] ?? ''), true);
+            if ($data === false || $data === '') continue;
+            $path = $dir . DIRECTORY_SEPARATOR . 'att_' . bin2hex(random_bytes(8)) . '.' . ($ext[$img['media_type'] ?? ''] ?? 'jpg');
+            if (file_put_contents($path, $data) !== false) $files[] = $path;
+        }
+        if (!$files) return [[], ''];
+        $note = (count($files) === 1 ? 'One file is attached' : count($files) . ' files are attached, in this order')
+              . '. Open each with the Read tool and look at it before answering:' . "\n- " . implode("\n- ", $files);
+        return [$files, $note];
+    }
 }
