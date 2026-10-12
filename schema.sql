@@ -403,6 +403,25 @@ CREATE TABLE `chat_types` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `feature_model_permissions` (
+  `permission_id` int NOT NULL AUTO_INCREMENT,
+  `feature_id` int NOT NULL,
+  `tier_id` int NOT NULL,
+  `model_id` int NOT NULL,
+  `is_allowed` tinyint(1) DEFAULT '1',
+  `notes` varchar(255) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`permission_id`),
+  UNIQUE KEY `unique_feature_tier_model` (`feature_id`,`tier_id`,`model_id`),
+  KEY `tier_id` (`tier_id`),
+  KEY `model_id` (`model_id`),
+  CONSTRAINT `feature_model_permissions_ibfk_1` FOREIGN KEY (`feature_id`) REFERENCES `ai_features` (`feature_id`) ON DELETE CASCADE,
+  CONSTRAINT `feature_model_permissions_ibfk_2` FOREIGN KEY (`tier_id`) REFERENCES `ai_tiers` (`tier_id`) ON DELETE CASCADE,
+  CONSTRAINT `feature_model_permissions_ibfk_3` FOREIGN KEY (`model_id`) REFERENCES `ai_models` (`model_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `programs` (
   `program_id` varchar(20) NOT NULL,
   `program_name` varchar(100) NOT NULL,

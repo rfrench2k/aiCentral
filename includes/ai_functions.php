@@ -189,6 +189,10 @@ function ai_makeRequestWithSystemKey($params, $featureConfig, $userPref) {
             break;
         }
     }
+    // A feature can have its own permission for a model its tier does not allow
+    if (!$modelAllowed && ai_featureAllowsModel($featureConfig['feature_id'], $tier['tier_id'], $model['model_id'])) {
+        $modelAllowed = true;
+    }
 
     if (!$modelAllowed) {
         return ['success' => false, 'error' => 'Your tier does not allow access to this model. Please upgrade or use your own API key.'];

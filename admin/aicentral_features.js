@@ -687,6 +687,21 @@ function aiCentral_buildTierTabs(tierConfigs) {
                 <div class="col-12" id="capabilities-${tierCode}">
                     ${aiCentral_buildCapabilityItems(tierCode, tierConfig.capabilities)}
                 </div>
+
+                <div class="col-12">
+                    <hr class="my-3">
+                    <h6 class="mb-3">Extra Models for This Feature</h6>
+                    <p class="text-muted small">Lets this feature use a model the ${tierConfig.tier_name} tier does not normally allow. Only this feature gets it.</p>
+                </div>
+
+                <div class="col-12 d-flex flex-wrap gap-2" id="extra-models-${tierCode}"></div>
+
+                <div class="col-md-6">
+                    <div class="input-group">
+                        <select id="extra-model-add-${tierCode}" class="form-select"></select>
+                        <button type="button" class="btn btn-outline-primary" onclick="aiCentral_addExtraModel('${tierCode}')">Add</button>
+                    </div>
+                </div>
             </div>
         `;
 
@@ -714,6 +729,62 @@ function aiCentral_buildTierTabs(tierConfigs) {
             aiCentral_setTierModelFromCode(tierCode, tierConfig.model_code);
         }
     }
+
+    // Extra models per tier (feature_model_permissions)
+    aiCentral_featuresData.extraModels = {};
+    for (const [tierCode, tierConfig] of Object.entries(tierConfigs)) {
+        aiCentral_featuresData.extraModels[tierCode] = (tierConfig.extra_model_ids || []).map(Number);
+        aiCentral_renderExtraModels(tierCode);
+    }
+}
+
+/**
+ * Label for a model: "Provider name - Model name"
+ */
+function aiCentral_extraModelLabel(model) {
+    const provider = (aiCentral_featuresData.providers || []).find(p => p.provider_code === model.provider_code);
+    return `${provider ? provider.provider_name : model.provider_code} - ${model.model_name}`;
+}
+
+/**
+ * Show a tier's extra models (chips with a remove button) and fill its Add dropdown with the rest
+ */
+function aiCentral_renderExtraModels(tierCode) {
+    const ids = aiCentral_featuresData.extraModels[tierCode] || [];
+    const models = aiCentral_featuresData.models || [];
+    const list = document.getElementById(`extra-models-${tierCode}`);
+    const select = document.getElementById(`extra-model-add-${tierCode}`);
+    if (!list || !select) return;
+
+    const chosen = ids.map(id => models.find(m => m.model_id === id)).filter(Boolean);
+    list.innerHTML = chosen.length
+        ? chosen.map(m => `
+            <span class="badge text-bg-light border d-inline-flex align-items-center gap-2 py-2 px-2">
+                ${aiCentral_escapeHtml(aiCentral_extraModelLabel(m))}
+                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1" title="Remove"
+                        onclick="aiCentral_removeExtraModel('${tierCode}', ${m.model_id})"><i class="bi bi-x"></i></button>
+            </span>`).join('')
+        : '<span class="text-muted small">None</span>';
+
+    select.innerHTML = '<option value="">Add a model...</option>' + models
+        .filter(m => !ids.includes(m.model_id))
+        .map(m => `<option value="${m.model_id}">${aiCentral_escapeHtml(aiCentral_extraModelLabel(m))}</option>`)
+        .join('');
+}
+
+function aiCentral_addExtraModel(tierCode) {
+    const select = document.getElementById(`extra-model-add-${tierCode}`);
+    const id = parseInt(select.value);
+    if (!id) return;
+    aiCentral_featuresData.extraModels[tierCode].push(id);
+    console.log(`Extra model ${id} added for tier ${tierCode} (saved with the feature)`);
+    aiCentral_renderExtraModels(tierCode);
+}
+
+function aiCentral_removeExtraModel(tierCode, modelId) {
+    aiCentral_featuresData.extraModels[tierCode] = aiCentral_featuresData.extraModels[tierCode].filter(id => id !== modelId);
+    console.log(`Extra model ${modelId} removed for tier ${tierCode} (saved with the feature)`);
+    aiCentral_renderExtraModels(tierCode);
 }
 
 /**
@@ -1069,7 +1140,8 @@ async function aiCentral_saveFeature() {
             tier_id: tierId,
             model_code: modelCode,
             max_output_tokens: maxOutputTokens,
-            capabilities: capabilities
+            capabilities: capabilities,
+            extra_model_ids: (aiCentral_featuresData.extraModels && aiCentral_featuresData.extraModels[tierCode]) || []
         };
     }
 

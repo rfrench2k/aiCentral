@@ -322,6 +322,18 @@ function ai_getModelsForTier($tierId) {
 }
 
 /**
+ * Does this feature have its own permission to use this model on this tier?
+ * (feature_model_permissions: lets one feature use a model its tier does not allow)
+ */
+function ai_featureAllowsModel($featureId, $tierId, $modelId) {
+    $conn = ai_getDBConnection();
+    $sql = "SELECT 1 FROM feature_model_permissions
+            WHERE feature_id = ? AND tier_id = ? AND model_id = ? AND is_allowed = 1 LIMIT 1";
+    $result = aiCentral_executeQuery($conn, $sql, [$featureId, $tierId, $modelId], 'iii');
+    return $result && $result->num_rows > 0;
+}
+
+/**
  * ============================================================================
  * CAPABILITY MANAGEMENT FUNCTIONS
  * ============================================================================

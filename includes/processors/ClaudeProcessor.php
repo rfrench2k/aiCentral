@@ -34,7 +34,7 @@ class ClaudeProcessor implements BaseProcessor {
         aiCentral_logMessage("ClaudeProcessor: Building request", 'DEBUG');
 
         // Start with model
-        $modelCode = $options['model_code'] ?? 'claude-sonnet-4-5-20250929';
+        $modelCode = $options['model_code'] ?? 'claude-sonnet-5-5';
         $request = [
             'model' => $modelCode,
             'max_tokens' => $options['max_tokens'] ?? 4096,
@@ -42,7 +42,7 @@ class ClaudeProcessor implements BaseProcessor {
 
         // Add optional parameters. Opus 4.7 and later, Sonnet 5 and Fable reject the
         // sampling parameters (400), so they are only sent to the models that take them.
-        $acceptsSampling = !preg_match('/^claude-(opus-4-[78]|opus-5|sonnet-5|fable|mythos)/', $modelCode);
+        $acceptsSampling = !preg_match('/^claude-(opus-4-[78]|opus-5|sonnet-5|haiku-5|fable|mythos)/', $modelCode);
         if ($acceptsSampling && isset($options['temperature'])) {
             $request['temperature'] = (float)$options['temperature'];
         }

@@ -222,13 +222,26 @@ function getFeature() {
         }
         $stmt->close();
 
+        // Extra models this feature may use on this tier (feature_model_permissions)
+        $sql = "SELECT model_id FROM feature_model_permissions WHERE feature_id = ? AND tier_id = ? AND is_allowed = 1";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param('ii', $featureId, $tierId);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $extraModelIds = [];
+        while ($row = $result->fetch_assoc()) {
+            $extraModelIds[] = (int)$row['model_id'];
+        }
+        $stmt->close();
+
         $tierConfigs[$tier['tier_code']] = [
             'tier_id' => (int)$tierId,
             'tier_code' => $tier['tier_code'],
             'tier_name' => $tier['tier_name'],
             'model_code' => $modelCode,
             'max_output_tokens' => $maxOutputTokens,
-            'capabilities' => $capabilities
+            'capabilities' => $capabilities,
+            'extra_model_ids' => $extraModelIds
         ];
     }
 
@@ -496,6 +509,33 @@ function saveFeature() {
                 $capStmt->bind_param('iisiiii', $id, $tierId, $capCode, $isEnabled, $maxUses, $isEnabled, $maxUses);
                 $capStmt->execute();
                 $capStmt->close();
+            }
+
+            // Extra models this feature may use on this tier (feature_model_permissions).
+            // Rows not in the list are removed; existing rows keep their notes.
+            if (isset($tierConfig['extra_model_ids']) && is_array($tierConfig['extra_model_ids'])) {
+                $extraIds = array_values(array_unique(array_map('intval', $tierConfig['extra_model_ids'])));
+                if ($extraIds) {
+                    $marks = implode(',', array_fill(0, count($extraIds), '?'));
+                    $delSql = "DELETE FROM feature_model_permissions WHERE feature_id = ? AND tier_id = ? AND model_id NOT IN ($marks)";
+                    $delTypes = 'ii' . str_repeat('i', count($extraIds));
+                    $delParams = array_merge([$id, $tierId], $extraIds);
+                } else {
+                    $delSql = "DELETE FROM feature_model_permissions WHERE feature_id = ? AND tier_id = ?";
+                    $delTypes = 'ii';
+                    $delParams = [$id, $tierId];
+                }
+                $delStmt = $conn->prepare($delSql);
+                $delStmt->bind_param($delTypes, ...$delParams);
+                $delStmt->execute();
+                $delStmt->close();
+
+                $addStmt = $conn->prepare("INSERT IGNORE INTO feature_model_permissions (feature_id, tier_id, model_id, is_allowed) VALUES (?, ?, ?, 1)");
+                foreach ($extraIds as $extraModelId) {
+                    $addStmt->bind_param('iii', $id, $tierId, $extraModelId);
+                    $addStmt->execute();
+                }
+                $addStmt->close();
             }
         }
 
