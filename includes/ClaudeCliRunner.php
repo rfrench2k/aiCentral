@@ -8,17 +8,20 @@
  *   1. The CLI runs ONLY on the owner's Claude subscription login (Max plan),
  *      NEVER the Anthropic API. Every API-key / API-routing variable is removed
  *      from the subprocess environment, and before running, `claude auth status`
- *      (free) must report authMethod "claude.ai". If it doesn't, nothing runs.
- *   2. The login lives in the owner's Windows profile, so the CLI must run as
- *      the owner. A caller that can read that login (scheduled tasks running as
- *      the owner, e.g. "Movies - DNA Regen") runs the CLI directly. A caller
- *      that can't (IIS web requests) queues the job in aicore.claude_cli_jobs
- *      and waits; the "AI Central - CLI Runner" scheduled task, running as the
- *      owner, executes it (scripts/claudeCliRunner.php).
+ *      (free) must report authMethod "claude.ai" (or "oauth_token", the setup-token
+ *      subscription token). If it doesn't, nothing runs.
+ *   2. Every caller runs the CLI directly, no waiting. Scheduled tasks running
+ *      as the owner use the login in his Windows profile. Callers without it
+ *      (IIS web requests) use the subscription token from `claude setup-token`
+ *      (AICORE_CLAUDE_OAUTH_TOKEN), with their own CLI config folder
+ *      (AICORE_CLI_WEB_CONFIG_DIR). Only when neither is there is the job queued
+ *      in aicore.claude_cli_jobs for the "AI Central - CLI Runner" task.
  *
- * Environment (optional):
- *   AICORE_CLAUDE_CLI_PATH   Path to the `claude` executable. Default: the npm
- *                            global claude.exe, else 'claude'.
+ * Environment:
+ *   AICORE_CLAUDE_OAUTH_TOKEN  The owner's subscription token (claude setup-token)
+ *                              for callers without his profile, e.g. IIS.
+ *   AICORE_CLAUDE_CLI_PATH     (optional) Path to the `claude` executable. Default:
+ *                              the npm global claude.exe, else 'claude'.
  */
 
 require_once __DIR__ . '/../common/common_ai.php';
@@ -32,6 +35,9 @@ const AICORE_CLI_BLOCKED_ENV = [
     'AICORE_ANTHROPIC_API_KEY', 'AICORE_OPENAI_API_KEY', 'AICORE_GEMINI_API_KEY',
     'AICORE_GROK_API_KEY', 'AICORE_KIMI_API_KEY',
 ];
+
+// The CLI's own config folder for callers without the owner's profile (IIS): it must be writable by them.
+const AICORE_CLI_WEB_CONFIG_DIR = 'C:\\ProgramData\\AICentral\\claude-web';
 
 /** Path to claude.exe (skips the .cmd/.ps1 wrappers, which hang under IIS). */
 function aiCentral_claudeCliPath(): string {
@@ -47,19 +53,40 @@ function aiCentral_claudeCliPath(): string {
 }
 
 /** True when this process runs as a user whose own profile holds the Claude login. */
-function aiCentral_claudeCliCanRunHere(): bool {
+function aiCentral_claudeCliOwnLogin(): bool {
     $profile = getenv('USERPROFILE') ?: getenv('HOME');
     return $profile !== false && $profile !== ''
         && is_readable($profile . DIRECTORY_SEPARATOR . '.claude' . DIRECTORY_SEPARATOR . '.credentials.json');
 }
 
-/** This process's environment with every API-related variable removed. */
+/** The owner's subscription token (claude setup-token), or null when it is not set. */
+function aiCentral_claudeCliToken(): ?string {
+    $token = trim((string)getenv('AICORE_CLAUDE_OAUTH_TOKEN'));
+    return $token !== '' ? $token : null;
+}
+
+/** True when this process can run the CLI itself: its own login, or the subscription token. */
+function aiCentral_claudeCliCanRunHere(): bool {
+    return aiCentral_claudeCliOwnLogin() || aiCentral_claudeCliToken() !== null;
+}
+
+/**
+ * This process's environment with every API-related variable removed. A caller
+ * without its own login gets the subscription token and its own config folder.
+ */
 function aiCentral_claudeCliEnv(): array {
     $env = getenv();
     foreach (array_keys($env) as $k) {
-        if (in_array(strtoupper($k), AICORE_CLI_BLOCKED_ENV, true)) {
+        if (in_array(strtoupper($k), AICORE_CLI_BLOCKED_ENV, true) || strtoupper($k) === 'AICORE_CLAUDE_OAUTH_TOKEN') {
             unset($env[$k]);
         }
+    }
+    if (!aiCentral_claudeCliOwnLogin() && aiCentral_claudeCliToken() !== null) {
+        if (!is_dir(AICORE_CLI_WEB_CONFIG_DIR)) {
+            @mkdir(AICORE_CLI_WEB_CONFIG_DIR, 0755, true);
+        }
+        $env['CLAUDE_CODE_OAUTH_TOKEN'] = aiCentral_claudeCliToken();
+        $env['CLAUDE_CONFIG_DIR'] = AICORE_CLI_WEB_CONFIG_DIR;
     }
     return $env;
 }
@@ -89,7 +116,8 @@ function aiCentral_claudeCliSubscriptionProblem(): ?string {
         $problem = 'claude auth status returned no JSON';
     } elseif (empty($status['loggedIn'])) {
         $problem = 'Claude CLI is not logged in';
-    } elseif (($status['authMethod'] ?? '') !== 'claude.ai') {
+    } elseif (!in_array($status['authMethod'] ?? '', ['claude.ai', 'oauth_token'], true)     // oauth_token = claude setup-token (subscription)
+              || ($status['apiProvider'] ?? 'firstParty') !== 'firstParty') {
         $problem = 'Claude CLI login is "' . ($status['authMethod'] ?? '?') . '", not the claude.ai subscription';
     } else {
         $problem = null;
