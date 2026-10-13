@@ -92,6 +92,30 @@ function aiCentral_claudeCliEnv(): array {
 }
 
 /**
+ * The command line for the CLI and its arguments, safe whatever an argument holds
+ * (a JSON schema with & | < > % " ...). On Windows proc_open runs it through
+ * cmd.exe (a CLI started by IIS without cmd.exe gets a broken token and hangs), so
+ * each argument is quoted for the program and then every cmd.exe special
+ * character is escaped with ^, so cmd.exe passes the line on unchanged (the
+ * method of Node's cross-spawn).
+ *
+ * @param string[] $cliArgs everything after the executable, one item per argument
+ */
+function aiCentral_claudeCliCommand(array $cliArgs): string {
+    if (DIRECTORY_SEPARATOR !== '\\') {
+        return implode(' ', array_map('escapeshellarg', array_merge([aiCentral_claudeCliPath()], $cliArgs)));
+    }
+    $meta = '/([()\][%!^"`<>&|;, *?])/';
+    $parts = [preg_replace($meta, '^$1', aiCentral_claudeCliPath())];
+    foreach ($cliArgs as $arg) {
+        $arg = preg_replace('/(\\\\*)"/', '$1$1\\\\"', (string)$arg);   // a quote: double the backslashes before it, escape it
+        $arg = preg_replace('/(\\\\+)$/', '$1$1', $arg);                // trailing backslashes: doubled (before the closing quote)
+        $parts[] = preg_replace($meta, '^$1', '"' . $arg . '"');
+    }
+    return implode(' ', $parts);
+}
+
+/**
  * Free check that the CLI will use the subscription login. Cached for 10 minutes
  * per process. Returns null when OK, or the reason it is not safe to run.
  */
@@ -101,7 +125,7 @@ function aiCentral_claudeCliSubscriptionProblem(): ?string {
         return $problem;
     }
     $out = [];
-    $proc = proc_open('"' . aiCentral_claudeCliPath() . '" auth status',
+    $proc = proc_open(aiCentral_claudeCliCommand(['auth', 'status']),
         [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, aiCentral_claudeCliEnv());
     if (!is_resource($proc)) {
         return 'could not run claude auth status';
@@ -130,12 +154,14 @@ function aiCentral_claudeCliSubscriptionProblem(): ?string {
 }
 
 /**
- * Run the Claude CLI with the given arguments (everything after the executable)
- * and the prompt on stdin.
+ * Run the Claude CLI with the given arguments (everything after the executable,
+ * one list item per argument, quoted by aiCentral_claudeCliCommand: callers
+ * never quote or escape anything) and the prompt on stdin.
  *
+ * @param string[] $cliArgs e.g. ['--print', '--model', 'claude-opus-5-5', '--json-schema', '{...}']
  * @return array ['stdout' => string, 'stderr' => string, 'exit_code' => int, 'error' => string|null]
  */
-function aiCentral_claudeCliRun(string $cliArgs, string $promptText, string $caller = '', int $timeout = 540): array {
+function aiCentral_claudeCliRun(array $cliArgs, string $promptText, string $caller = '', int $timeout = 540): array {
     if (!aiCentral_claudeCliCanRunHere()) {
         return aiCentral_claudeCliQueueAndWait($cliArgs, $promptText, $caller, $timeout);
     }
@@ -176,9 +202,8 @@ function aiCentral_claudeCliRun(string $cliArgs, string $promptText, string $cal
     $stderr = '';
     $exitCode = -1;
     try {
-        // stdin is the prompt file opened directly (no cmd.exe '<' redirect,
-        // which is racy on Windows). The environment has no API variables.
-        $proc = proc_open('"' . aiCentral_claudeCliPath() . '" ' . $cliArgs,
+        // stdin is the prompt file opened directly. The environment has no API variables.
+        $proc = proc_open(aiCentral_claudeCliCommand($cliArgs),
             [0 => ['file', $promptFile, 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes, null, aiCentral_claudeCliEnv());
         if (!is_resource($proc)) {
@@ -205,13 +230,14 @@ function aiCentral_claudeCliRun(string $cliArgs, string $promptText, string $cal
 }
 
 /** Queue the job for the CLI Runner task (runs as the owner) and wait for it. */
-function aiCentral_claudeCliQueueAndWait(string $cliArgs, string $promptText, string $caller, int $timeout): array {
+function aiCentral_claudeCliQueueAndWait(array $cliArgs, string $promptText, string $caller, int $timeout): array {
     $conn = ai_getDBConnection();
     if (!$conn) {
         return ['stdout' => '', 'stderr' => '', 'exit_code' => -1, 'error' => 'Claude CLI queue: no aicore connection'];
     }
+    $argsJson = json_encode(array_values($cliArgs), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);   // the argument list, as JSON
     $stmt = $conn->prepare("INSERT INTO claude_cli_jobs (caller, cli_args, prompt) VALUES (?, ?, ?)");
-    $stmt->bind_param('sss', $caller, $cliArgs, $promptText);
+    $stmt->bind_param('sss', $caller, $argsJson, $promptText);
     $stmt->execute();
     $jobId = (int)$conn->insert_id;
     $stmt->close();

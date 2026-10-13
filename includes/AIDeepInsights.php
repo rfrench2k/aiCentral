@@ -354,9 +354,9 @@ class AIDeepInsights {
         // the CLI as the owner: directly from a scheduled task, or through the
         // "AI Central - CLI Runner" task when called from a web request.
         $allowedTools = $this->buildAllowedTools();
-        $args = "--print --output-format json --dangerously-skip-permissions --allowed-tools {$allowedTools}";
+        $args = ['--print', '--output-format', 'json', '--dangerously-skip-permissions', '--allowed-tools', $allowedTools];
 
-        aiCentral_logMessage("Executing Claude CLI: claude {$args}", 'DEBUG');
+        aiCentral_logMessage('Executing Claude CLI: claude ' . implode(' ', $args), 'DEBUG');
 
         $startTime = microtime(true);
         $r = aiCentral_claudeCliRun($args, $prompt, "AIDeepInsights {$this->featureCode}");

@@ -68,7 +68,12 @@ while (time() < $stopAt) {
     $conn->commit();
 
     aiCentral_logMessage("CLI Runner: running job $jobId ({$job['caller']})", 'INFO');
-    $r = aiCentral_claudeCliRun((string)$job['cli_args'], (string)$job['prompt'], (string)$job['caller']);
+    $cliArgs = json_decode((string)$job['cli_args'], true);      // the argument list, queued as JSON
+    if (!is_array($cliArgs)) {
+        $r = ['stdout' => '', 'stderr' => '', 'exit_code' => -1, 'error' => 'Queued job has no argument list'];
+    } else {
+        $r = aiCentral_claudeCliRun($cliArgs, (string)$job['prompt'], (string)$job['caller']);
+    }
 
     $status = $r['error'] === null ? 'done' : 'error';
     $stmt = $conn->prepare("UPDATE claude_cli_jobs SET status = ?, stdout = ?, stderr = ?, exit_code = ?, error = ?, finished_at = NOW()

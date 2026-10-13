@@ -156,27 +156,22 @@ class ClaudeCliProcessor implements BaseProcessor {
             $promptText = "SYSTEM:\n" . $body['system'] . "\n\nUSER:\n" . $promptText;
         }
 
-        // Build the arguments. escapeshellarg handles spaces in model codes and
-        // schema JSON; for the JSON schema we additionally need to survive cmd.exe
-        // quoting on Windows, so we wrap and escape inner double quotes ourselves.
-        $args  = '--print';
-        $args .= ' --output-format json';
-        $args .= ' --dangerously-skip-permissions';
-        $args .= ' --no-session-persistence';
+        // The arguments, one list item each: aiCentral_claudeCliRun() passes them
+        // without a shell, so nothing here needs quoting or escaping.
+        $args = ['--print', '--output-format', 'json', '--dangerously-skip-permissions', '--no-session-persistence'];
         if (!empty($body['allowed_tools']) && is_array($body['allowed_tools'])) {
-            $args .= ' --allowed-tools ' . escapeshellarg(implode(',', $body['allowed_tools']));
+            array_push($args, '--allowed-tools', implode(',', $body['allowed_tools']));
         }
-        $args .= ' --model ' . escapeshellarg($modelCode);
+        array_push($args, '--model', $modelCode);
         if (!empty($body['effort'])) {
-            $args .= ' --effort ' . escapeshellarg($body['effort']);
+            array_push($args, '--effort', (string)$body['effort']);
         }
         // Note: --max-tokens was removed from the claude CLI in 2.1.142
         // (auto-update on 2026-05-14). The CLI now uses the model's default
         // output cap, which is plenty for this hub's use cases. If a hard
         // dollar cap is needed, use --max-budget-usd instead.
         if (!empty($body['json_schema']) && is_array($body['json_schema'])) {
-            $schemaJson = json_encode($body['json_schema'], JSON_UNESCAPED_SLASHES);
-            $args .= ' --json-schema "' . str_replace('"', '\\"', $schemaJson) . '"';
+            array_push($args, '--json-schema', json_encode($body['json_schema'], JSON_UNESCAPED_SLASHES));
         }
 
         // Subscription login only, never the API; runs as the owner (directly,
