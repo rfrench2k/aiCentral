@@ -20,7 +20,8 @@ require_once __DIR__ . '/../common/aPRIV_API.php';
  *   'program_id' => string (required),
  *   'feature_code' => string (required),
  *   'prompt' => string (required),
- *   'options' => array (optional: max_tokens, temperature, system, images, run_id, metadata)
+ *   'options' => array (optional: max_tokens, temperature, system, images, run_id, metadata,
+ *                json_schema: a JSON Schema array; on Claude models the response is then valid JSON matching it)
  * ]
  * @return array ['success' => bool, 'response' => string, 'usage' => array, 'cost' => float, 'error' => string]
  */
@@ -100,9 +101,16 @@ function ai_makeRequestWithUserKey($params, $userPref) {
     }
 
     // Get model
-    $model = ai_getModelByCode($userPref['preferred_model']);
+    $model = ai_getModelByCodeAndProvider($userPref['preferred_model'], $provider['provider_code']);
     if (!$model) {
         return ['success' => false, 'error' => 'Model not found'];
+    }
+
+    // The feature's settings for the user's tier: max output tokens, effort, thinking
+    $featureConfig = ai_getFeatureConfig($programId, $featureCode);
+    $tier = ai_getUserTier($userId, $programId);
+    if ($featureConfig && $tier) {
+        ai_applyTierSettings($options, ai_getFeatureTierRow($featureConfig['feature_id'], $tier['tier_id']), $model);
     }
 
     // Make request
@@ -153,10 +161,13 @@ function ai_makeRequestWithSystemKey($params, $featureConfig, $userPref) {
 
     // Determine model based on tier + feature configuration ONLY
     // User preferences are IGNORED when using system keys
+    $tierRow = ai_getFeatureTierRow($featureConfig['feature_id'], $tier['tier_id']);
+    $modelProvider = $featureConfig['default_provider'] ?? null;
     $tierModelKey = "default_model_" . $tierCode;
 
     if (isset($featureConfig[$tierModelKey]) && !empty($featureConfig[$tierModelKey])) {
         $modelCode = $featureConfig[$tierModelKey];
+        if (!empty($tierRow['provider_code'])) $modelProvider = $tierRow['provider_code'];
         aiCentral_logMessage("Using tier-specific model for tier $tierCode: $modelCode", 'INFO');
     } elseif (isset($featureConfig['default_model']) && !empty($featureConfig['default_model'])) {
         $modelCode = $featureConfig['default_model'];
@@ -169,7 +180,7 @@ function ai_makeRequestWithSystemKey($params, $featureConfig, $userPref) {
     // (e.g. provider_code='claude_cli'), use that to disambiguate — the same
     // model_code can exist under multiple providers (one paid via API, one
     // zero-cost via CLI), and we need to pick the right one.
-    $model = ai_getModelByCodeAndProvider($modelCode, $featureConfig['default_provider'] ?? null);
+    $model = ai_getModelByCodeAndProvider($modelCode, $modelProvider);
     if (!$model) {
         return ['success' => false, 'error' => "Model '$modelCode' not found in database. Please contact administrator."];
     }
@@ -232,11 +243,9 @@ function ai_makeRequestWithSystemKey($params, $featureConfig, $userPref) {
         aiCentral_logMessage("No capabilities configured for feature {$featureConfig['feature_code']} on tier {$tier['tier_code']}", 'INFO');
     }
 
-    // Apply max_output_tokens from feature config if not overridden in options
-    if (!isset($options['max_tokens']) && isset($featureConfig['max_output_tokens'])) {
-        $options['max_tokens'] = $featureConfig['max_output_tokens'];
-        aiCentral_logMessage("Using feature max_output_tokens: {$featureConfig['max_output_tokens']}", 'INFO');
-    }
+    // The feature's tier settings: max output tokens, effort, thinking
+    ai_applyTierSettings($options, $tierRow, $model);
+
 
     // Get system API key from config based on provider
     $apiKey = null;
@@ -303,10 +312,13 @@ function ai_makeRequestPassthrough($params, $featureConfig, $programConfig) {
     $tierCode = $tier['tier_code'];
 
     // Determine model based on tier + feature configuration
+    $tierRow = ai_getFeatureTierRow($featureConfig['feature_id'], $tier['tier_id']);
+    $modelProvider = $featureConfig['default_provider'] ?? null;
     $tierModelKey = "default_model_" . $tierCode;
 
     if (isset($featureConfig[$tierModelKey]) && !empty($featureConfig[$tierModelKey])) {
         $modelCode = $featureConfig[$tierModelKey];
+        if (!empty($tierRow['provider_code'])) $modelProvider = $tierRow['provider_code'];
     } elseif (isset($featureConfig['default_model']) && !empty($featureConfig['default_model'])) {
         $modelCode = $featureConfig['default_model'];
     } else {
@@ -315,7 +327,7 @@ function ai_makeRequestPassthrough($params, $featureConfig, $programConfig) {
 
     // Get model. Use feature's default_provider for disambiguation when the
     // same model_code exists under multiple providers.
-    $model = ai_getModelByCodeAndProvider($modelCode, $featureConfig['default_provider'] ?? null);
+    $model = ai_getModelByCodeAndProvider($modelCode, $modelProvider);
     if (!$model) {
         return ['success' => false, 'error' => "Model '$modelCode' not found."];
     }
@@ -326,10 +338,9 @@ function ai_makeRequestPassthrough($params, $featureConfig, $programConfig) {
         return ['success' => false, 'error' => "Provider not found for model '$modelCode'."];
     }
 
-    // Apply max_output_tokens from feature config if not overridden
-    if (!isset($options['max_tokens']) && isset($featureConfig['max_output_tokens'])) {
-        $options['max_tokens'] = $featureConfig['max_output_tokens'];
-    }
+    // The feature's tier settings: max output tokens, effort, thinking
+    ai_applyTierSettings($options, $tierRow, $model);
+
 
     // Get system API key
     $apiKey = null;
@@ -509,9 +520,12 @@ function ai_generateEmbedding($params) {
         }
 
         // Resolve model from feature config + tier
+        $tierRow = !empty($tier['tier_id']) ? ai_getFeatureTierRow($featureConfig['feature_id'], $tier['tier_id']) : null;
+        $modelProvider = $featureConfig['default_provider'] ?? null;
         $tierModelKey = "default_model_" . $tierCode;
         if (isset($featureConfig[$tierModelKey]) && !empty($featureConfig[$tierModelKey])) {
             $modelCode = $featureConfig[$tierModelKey];
+            if (!empty($tierRow['provider_code'])) $modelProvider = $tierRow['provider_code'];
         } elseif (isset($featureConfig['default_model']) && !empty($featureConfig['default_model'])) {
             $modelCode = $featureConfig['default_model'];
         } else {
@@ -519,7 +533,7 @@ function ai_generateEmbedding($params) {
         }
 
         // Get model details
-        $model = ai_getModelByCode($modelCode);
+        $model = ai_getModelByCodeAndProvider($modelCode, $modelProvider);
         if (!$model) {
             return ['success' => false, 'error' => "Model '$modelCode' not found"];
         }

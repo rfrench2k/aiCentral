@@ -186,7 +186,7 @@ function getFeature() {
         $tierId = $tier['tier_id'];
 
         // Get max_output_tokens and model_code for this tier
-        $sql = "SELECT max_output_tokens, model_code FROM ai_feature_tier_config
+        $sql = "SELECT max_output_tokens, model_code, provider_code, effort_code, thinking_off FROM ai_feature_tier_config
                 WHERE feature_id = ? AND tier_id = ?";
         $stmt = $conn->prepare($sql);
         $stmt->bind_param('ii', $featureId, $tierId);
@@ -195,10 +195,16 @@ function getFeature() {
 
         $maxOutputTokens = 4096; // Default
         $modelCode = null;
+        $tierProvider = null;
+        $effortCode = null;
+        $thinkingOff = false;
         if ($result->num_rows > 0) {
             $row = $result->fetch_assoc();
             $maxOutputTokens = (int)$row['max_output_tokens'];
             $modelCode = $row['model_code'];
+            $tierProvider = $row['provider_code'];
+            $effortCode = $row['effort_code'];
+            $thinkingOff = (bool)$row['thinking_off'];
         }
         $stmt->close();
 
@@ -239,8 +245,11 @@ function getFeature() {
             'tier_code' => $tier['tier_code'],
             'tier_name' => $tier['tier_name'],
             'model_code' => $modelCode,
+            'provider_code' => $tierProvider,
             'max_output_tokens' => $maxOutputTokens,
             'capabilities' => $capabilities,
+            'effort_code' => $effortCode,
+            'thinking_off' => $thinkingOff,
             'extra_model_ids' => $extraModelIds
         ];
     }
@@ -389,14 +398,17 @@ function saveFeature() {
     $featureTypeValue = empty($featureType) ? NULL : $featureType;
     $defaultModelValue = empty($defaultModel) ? NULL : $defaultModel;
 
-    // Derive default_provider from the selected model's provider
+    // The provider chosen with the model (the same model code can exist under the API and the CLI);
+    // only when none was sent is it looked up from the model
+    $postedProvider = trim($_POST['default_provider'] ?? '');
     $defaultProviderValue = NULL;
     if ($defaultModelValue) {
         $provSql = "SELECT p.provider_code FROM ai_models m
                     JOIN ai_providers p ON m.provider_id = p.provider_id
-                    WHERE m.model_code = ? AND m.is_active = 1 LIMIT 1";
+                    WHERE m.model_code = ? AND m.is_active = 1 AND (? = '' OR p.provider_code = ?)
+                    ORDER BY (p.provider_code = ?) DESC LIMIT 1";
         $provStmt = $conn->prepare($provSql);
-        $provStmt->bind_param('s', $defaultModelValue);
+        $provStmt->bind_param('ssss', $defaultModelValue, $postedProvider, $postedProvider, $postedProvider);
         $provStmt->execute();
         $provResult = $provStmt->get_result();
         if ($provRow = $provResult->fetch_assoc()) {
@@ -456,9 +468,17 @@ function saveFeature() {
             $modelCode = trim($tierConfig['model_code'] ?? '');
             $maxOutputTokens = (int)$tierConfig['max_output_tokens'];
             $capabilities = $tierConfig['capabilities'] ?? [];
+            $effortCode = trim((string)($tierConfig['effort_code'] ?? ''));
+            $effortCodeValue = $effortCode === '' ? NULL : $effortCode;
+            if ($effortCodeValue !== NULL && !in_array($effortCodeValue, array_column(aiCentral_getLookups('ai_effort'), 'lookup_value'), true)) {
+                echo json_encode(['success' => false, 'error' => "Unknown effort level '$effortCodeValue' for {$tierCode}"]);
+                return;
+            }
+            $thinkingOff = empty($tierConfig['thinking_off']) ? 0 : 1;
 
             // Convert empty model_code to NULL
             $modelCodeValue = empty($modelCode) ? NULL : $modelCode;
+            $tierProviderValue = ($modelCodeValue && trim($tierConfig['provider_code'] ?? '') !== '') ? trim($tierConfig['provider_code']) : NULL;
 
             // Validate max_output_tokens - must be one of the standard values
             $validOutputTokens = [1024, 2048, 4096, 8192, 16384, 32768, 65536, 128000];
@@ -468,11 +488,11 @@ function saveFeature() {
             }
 
             // Save/update tier config
-            $sql = "INSERT INTO ai_feature_tier_config (feature_id, tier_id, max_output_tokens, model_code)
-                    VALUES (?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE max_output_tokens = ?, model_code = ?, updated_at = NOW()";
+            $sql = "INSERT INTO ai_feature_tier_config (feature_id, tier_id, max_output_tokens, model_code, provider_code, effort_code, thinking_off)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE max_output_tokens = ?, model_code = ?, provider_code = ?, effort_code = ?, thinking_off = ?, updated_at = NOW()";
             $configStmt = $conn->prepare($sql);
-            $configStmt->bind_param('iiisis', $id, $tierId, $maxOutputTokens, $modelCodeValue, $maxOutputTokens, $modelCodeValue);
+            $configStmt->bind_param('iiisssiisssi', $id, $tierId, $maxOutputTokens, $modelCodeValue, $tierProviderValue, $effortCodeValue, $thinkingOff, $maxOutputTokens, $modelCodeValue, $tierProviderValue, $effortCodeValue, $thinkingOff);
             $configStmt->execute();
             $configStmt->close();
 
@@ -617,7 +637,8 @@ function toggleFeatureStatus() {
 function getModels() {
     $conn = ai_getDBConnection();
 
-    $sql = "SELECT m.model_id, m.model_code, m.model_display_name, m.provider_id, p.provider_code
+    $sql = "SELECT m.model_id, m.model_code, m.model_display_name, m.provider_id, p.provider_code, m.thinking_off_mode,
+                   (SELECT GROUP_CONCAT(e.effort_code ORDER BY FIELD(e.effort_code, 'low','medium','high','xhigh','max')) FROM ai_model_effort_levels e WHERE e.model_id = m.model_id) AS effort_levels
             FROM ai_models m
             JOIN ai_providers p ON m.provider_id = p.provider_id
             WHERE m.is_active = 1
@@ -632,7 +653,9 @@ function getModels() {
             'model_code' => $row['model_code'],
             'model_name' => $row['model_display_name'],
             'provider_id' => (int)$row['provider_id'],
-            'provider_code' => $row['provider_code']
+            'provider_code' => $row['provider_code'],
+            'thinking_off_mode' => $row['thinking_off_mode'],
+            'effort_levels' => $row['effort_levels'] ? explode(',', $row['effort_levels']) : []
         ];
     }
 

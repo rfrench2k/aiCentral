@@ -551,7 +551,7 @@ async function aiCentral_editFeature(featureId) {
 
         // Set default model (fallback) - this will set provider and model dropdowns using tier pattern
         if (feature.default_model) {
-            aiCentral_setTierModelFromCode('general', feature.default_model);
+            aiCentral_setTierModelFromCode('general', feature.default_model, feature.default_provider);
         }
 
         // Reset to General Settings tab
@@ -678,6 +678,28 @@ function aiCentral_buildTierTabs(tierConfigs) {
                     <small class="form-text text-muted" id="model-max-tokens-hint-${tierCode}"></small>
                 </div>
 
+                <div class="col-md-3">
+                    <label for="effort-${tierCode}" class="form-label">
+                        Effort
+                        <i class="bi bi-question-circle text-muted"
+                           data-bs-toggle="tooltip"
+                           data-bs-placement="top"
+                           title="How much the model thinks and works: lower is faster and cheaper"></i>
+                    </label>
+                    <select id="effort-${tierCode}" class="form-select tier-effort"></select>
+                </div>
+
+                <div class="col-md-3 d-flex align-items-end">
+                    <div class="form-check mb-2">
+                        <input type="checkbox" class="form-check-input tier-thinking-off" id="thinking-off-${tierCode}" ${tierConfig.thinking_off ? 'checked' : ''}>
+                        <label class="form-check-label" for="thinking-off-${tierCode}">Thinking off</label>
+                    </div>
+                </div>
+
+                <div class="col-12">
+                    <small class="form-text text-muted" id="thinking-hint-${tierCode}"></small>
+                </div>
+
                 <div class="col-12">
                     <hr class="my-3">
                     <h6 class="mb-3">AI Tool Capabilities</h6>
@@ -726,8 +748,26 @@ function aiCentral_buildTierTabs(tierConfigs) {
     // Populate model dropdowns for existing tier configs with model_code set
     for (const [tierCode, tierConfig] of Object.entries(tierConfigs)) {
         if (tierConfig.model_code) {
-            aiCentral_setTierModelFromCode(tierCode, tierConfig.model_code);
+            aiCentral_setTierModelFromCode(tierCode, tierConfig.model_code, tierConfig.provider_code || (aiCentral_featuresData.currentFeature || {}).default_provider);
         }
+    }
+
+    // Effort and thinking per tier: the choices depend on the tier's model (or the feature default)
+    aiCentral_featuresData.tierEffort = {};
+    for (const [tierCode, tierConfig] of Object.entries(tierConfigs)) {
+        aiCentral_featuresData.tierEffort[tierCode] = tierConfig.effort_code || '';
+        ['provider-', 'model-code-', 'effort-', 'thinking-off-'].forEach(prefix => {
+            const el = document.getElementById(prefix + tierCode);
+            if (el) el.addEventListener('change', () => aiCentral_refreshThinkingControls(tierCode));
+        });
+    }
+    setTimeout(() => Object.keys(tierConfigs).forEach(aiCentral_refreshThinkingControls), 100);
+    if (!aiCentral_featuresData.generalThinkingHooked) {
+        ['provider-general', 'model-code-general'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', () => document.querySelectorAll('.tier-tab-content').forEach(p => aiCentral_refreshThinkingControls(p.getAttribute('data-tier-code'))));
+        });
+        aiCentral_featuresData.generalThinkingHooked = true;
     }
 
     // Extra models per tier (feature_model_permissions)
@@ -736,6 +776,54 @@ function aiCentral_buildTierTabs(tierConfigs) {
         aiCentral_featuresData.extraModels[tierCode] = (tierConfig.extra_model_ids || []).map(Number);
         aiCentral_renderExtraModels(tierCode);
     }
+}
+
+/**
+ * Fill a tier's Effort list and Thinking off switch from its model (or the feature default model):
+ * only the effort levels the model takes, and thinking off only where the model can turn it off.
+ */
+function aiCentral_refreshThinkingControls(tierCode) {
+    const effortSelect = document.getElementById(`effort-${tierCode}`);
+    const thinkingBox = document.getElementById(`thinking-off-${tierCode}`);
+    const hint = document.getElementById(`thinking-hint-${tierCode}`);
+    if (!effortSelect || !thinkingBox || !hint) return;
+
+    const tierModelCode = (document.getElementById(`model-code-${tierCode}`) || {}).value || '';
+    const providerCode = tierModelCode
+        ? (document.getElementById(`provider-${tierCode}`) || {}).value || ''
+        : (document.getElementById('provider-general') || {}).value || '';
+    const modelCode = tierModelCode || (document.getElementById('model-code-general') || {}).value || '';
+    const models = aiCentral_featuresData.models || [];
+    const model = models.find(m => m.model_code === modelCode && (!providerCode || m.provider_code === providerCode))
+               || models.find(m => m.model_code === modelCode);
+
+    const levels = model ? (model.effort_levels || []) : [];
+    const wanted = effortSelect.options.length ? effortSelect.value : (aiCentral_featuresData.tierEffort[tierCode] || '');
+    effortSelect.innerHTML = '<option value="">Model default</option>' +
+        levels.map(l => `<option value="${l}">${l}</option>`).join('');
+    effortSelect.value = levels.includes(wanted) ? wanted : '';
+    effortSelect.disabled = levels.length === 0;
+
+    const notes = [];
+    if (!model) {
+        notes.push('Pick a model to see its effort and thinking options.');
+    } else if (levels.length === 0) {
+        notes.push(`${model.model_name} has no effort setting.`);
+    }
+    if (wanted && !levels.includes(wanted)) {
+        notes.push(`Effort "${wanted}" is not available on this model; it will use the model default.`);
+    }
+    if (model && !model.thinking_off_mode) {
+        thinkingBox.checked = false;
+        thinkingBox.disabled = true;
+        if (levels.length) notes.push(`${model.model_name} cannot turn thinking off; use a lower effort instead.`);
+    } else if (model) {
+        thinkingBox.disabled = false;
+        if (thinkingBox.checked && ['xhigh', 'max'].includes(effortSelect.value)) {
+            notes.push('Thinking off only works at high effort or below; at this effort it is ignored.');
+        }
+    }
+    hint.textContent = notes.join(' ');
 }
 
 /**
@@ -947,7 +1035,7 @@ function aiCentral_setDefaultModelFromCode(modelCode) {
 /**
  * Set tier provider and model from combined model_code
  */
-function aiCentral_setTierModelFromCode(tierCode, modelCode) {
+function aiCentral_setTierModelFromCode(tierCode, modelCode, providerCode) {
     if (!modelCode) return;
 
     const providerSelect = document.getElementById(`provider-${tierCode}`);
@@ -956,7 +1044,8 @@ function aiCentral_setTierModelFromCode(tierCode, modelCode) {
     if (!providerSelect || !modelSelect) return;
 
     // Find the model in our loaded models to get its provider_code
-    const model = aiCentral_featuresData.models.find(m => m.model_code === modelCode);
+    const model = aiCentral_featuresData.models.find(m => m.model_code === modelCode && (!providerCode || m.provider_code === providerCode))
+               || aiCentral_featuresData.models.find(m => m.model_code === modelCode);
 
     if (!model) {
         console.warn('Model not found for tier', tierCode, ':', modelCode);
@@ -1139,8 +1228,11 @@ async function aiCentral_saveFeature() {
         tierConfigs[tierCode] = {
             tier_id: tierId,
             model_code: modelCode,
+            provider_code: modelCode ? ((document.getElementById(`provider-${tierCode}`) || {}).value || '') : '',
             max_output_tokens: maxOutputTokens,
             capabilities: capabilities,
+            effort_code: (document.getElementById(`effort-${tierCode}`) || {}).value || '',
+            thinking_off: !!(document.getElementById(`thinking-off-${tierCode}`) || {}).checked,
             extra_model_ids: (aiCentral_featuresData.extraModels && aiCentral_featuresData.extraModels[tierCode]) || []
         };
     }
@@ -1158,6 +1250,7 @@ async function aiCentral_saveFeature() {
         feature_description: document.getElementById('aicentral-feature-description').value,
         feature_type: document.getElementById('aicentral-feature-type').value,
         default_model: defaultModel,
+        default_provider: (document.getElementById('provider-general') || {}).value || '',
         max_input_tokens: maxInputTokens,
         sort_order: document.getElementById('aicentral-feature-sort').value,
         tier_configs: JSON.stringify(tierConfigs)

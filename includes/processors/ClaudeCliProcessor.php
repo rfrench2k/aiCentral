@@ -43,6 +43,7 @@ class ClaudeCliProcessor implements BaseProcessor {
             'system'        => $options['system']        ?? null,
             'max_tokens'    => $options['max_tokens']    ?? null,
             'json_schema'   => $options['json_schema']   ?? null,
+            'effort'        => $options['effort']        ?? null,
             'allowed_tools' => $options['allowed_tools'] ?? ['Read'],
             'images'        => $options['images']        ?? [],
         ];
@@ -157,6 +158,9 @@ class ClaudeCliProcessor implements BaseProcessor {
             $args .= ' --allowed-tools ' . escapeshellarg(implode(',', $body['allowed_tools']));
         }
         $args .= ' --model ' . escapeshellarg($modelCode);
+        if (!empty($body['effort'])) {
+            $args .= ' --effort ' . escapeshellarg($body['effort']);
+        }
         // Note: --max-tokens was removed from the claude CLI in 2.1.142
         // (auto-update on 2026-05-14). The CLI now uses the model's default
         // output cap, which is plenty for this hub's use cases. If a hard

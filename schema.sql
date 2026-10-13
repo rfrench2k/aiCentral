@@ -93,6 +93,9 @@ CREATE TABLE `ai_feature_tier_config` (
   `tier_id` int NOT NULL,
   `max_output_tokens` int NOT NULL DEFAULT '4096',
   `model_code` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `provider_code` varchar(20) DEFAULT NULL COMMENT 'provider of model_code; NULL = the feature default_provider',
+  `effort_code` varchar(10) DEFAULT NULL COMMENT 'admin_lookups ai_effort; NULL = model default',
+  `thinking_off` tinyint(1) NOT NULL DEFAULT '0',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`feature_tier_config_id`),
@@ -161,6 +164,15 @@ CREATE TABLE `ai_model_capabilities` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ai_model_effort_levels` (
+  `model_id` int NOT NULL,
+  `effort_code` varchar(10) NOT NULL COMMENT 'admin_lookups ai_effort',
+  PRIMARY KEY (`model_id`,`effort_code`),
+  CONSTRAINT `ai_model_effort_levels_ibfk_1` FOREIGN KEY (`model_id`) REFERENCES `ai_models` (`model_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `ai_models` (
   `model_id` int NOT NULL AUTO_INCREMENT,
   `provider_id` int NOT NULL,
@@ -183,6 +195,7 @@ CREATE TABLE `ai_models` (
   `notes` text,
   `processor_class` varchar(100) NOT NULL DEFAULT 'OpenAIProcessor',
   `thinking_cost_per_million` decimal(10,6) DEFAULT NULL,
+  `thinking_off_mode` varchar(20) DEFAULT NULL COMMENT 'admin_lookups ai_thinking_off_mode; NULL = thinking cannot be turned off',
   PRIMARY KEY (`model_id`),
   KEY `idx_provider_model` (`provider_id`,`model_code`),
   KEY `idx_active` (`is_active`),

@@ -53,6 +53,18 @@ class ClaudeProcessor implements BaseProcessor {
             $request['top_k'] = (int)$options['top_k'];
         }
 
+        // Effort and thinking, set per feature and tier in AI Central (ai_applyTierSettings checked them against the model)
+        if (!empty($options['effort'])) {
+            $request['output_config']['effort'] = $options['effort'];
+        }
+        if (!empty($options['thinking_mode'])) {
+            $request['thinking'] = ['type' => $options['thinking_mode']];
+        }
+        // Structured output: the answer is valid JSON matching the caller's schema (same option as the CLI processor)
+        if (!empty($options['json_schema']) && is_array($options['json_schema'])) {
+            $request['output_config']['format'] = ['type' => 'json_schema', 'schema' => $options['json_schema']];
+        }
+
         // System prompt (top-level field)
         if (!empty($options['system'])) {
             $request['system'] = $options['system'];

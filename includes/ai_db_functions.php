@@ -334,6 +334,57 @@ function ai_featureAllowsModel($featureId, $tierId, $modelId) {
 }
 
 /**
+ * A feature's settings for one tier (ai_feature_tier_config), or null when the tier has none.
+ */
+function ai_getFeatureTierRow($featureId, $tierId) {
+    $conn = ai_getDBConnection();
+    $result = aiCentral_executeQuery($conn,
+        "SELECT max_output_tokens, model_code, provider_code, effort_code, thinking_off
+           FROM ai_feature_tier_config WHERE feature_id = ? AND tier_id = ?",
+        [$featureId, $tierId], 'ii');
+    $row = $result ? $result->fetch_assoc() : null;
+    return $row ?: null;
+}
+
+/**
+ * Apply a feature's tier settings to one request: max output tokens (unless the caller set it),
+ * and effort and thinking checked against what the model supports (ai_model_effort_levels,
+ * ai_models.thinking_off_mode). Sets $options['effort'] and $options['thinking_mode'] only when valid.
+ */
+function ai_applyTierSettings(array &$options, $tierRow, array $model) {
+    if (!$tierRow) return;
+    $conn = ai_getDBConnection();
+
+    if (!isset($options['max_tokens']) && !empty($tierRow['max_output_tokens'])) {
+        $options['max_tokens'] = (int)$tierRow['max_output_tokens'];
+    }
+
+    $effort = (string)($tierRow['effort_code'] ?? '');
+    if ($effort !== '') {
+        $ok = aiCentral_executeQuery($conn,
+            "SELECT 1 FROM ai_model_effort_levels WHERE model_id = ? AND effort_code = ?",
+            [$model['model_id'], $effort], 'is');
+        if ($ok && $ok->num_rows > 0) {
+            $options['effort'] = $effort;
+        } else {
+            aiCentral_logMessage("Effort '$effort' not supported by {$model['model_code']}, using the model default", 'WARNING');
+            $effort = '';
+        }
+    }
+
+    if (!empty($tierRow['thinking_off'])) {
+        $mode = (string)($model['thinking_off_mode'] ?? '');
+        if ($mode === '') {
+            aiCentral_logMessage("Thinking cannot be turned off on {$model['model_code']}; lower the effort instead", 'INFO');
+        } elseif (in_array($effort, ['xhigh', 'max'], true)) {
+            aiCentral_logMessage("Thinking off ignored on {$model['model_code']}: not allowed at $effort effort", 'WARNING');
+        } else {
+            $options['thinking_mode'] = $mode;
+        }
+    }
+}
+
+/**
  * ============================================================================
  * CAPABILITY MANAGEMENT FUNCTIONS
  * ============================================================================
