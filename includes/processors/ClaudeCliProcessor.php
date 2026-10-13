@@ -37,6 +37,15 @@ class ClaudeCliProcessor implements BaseProcessor {
      * executeLocal() verbatim.
      */
     public function buildRequest($prompt, $options) {
+        // The CLI takes one turn, so earlier conversation turns are written out ahead of the new message.
+        [$turns, $prompt] = aiCentral_historyTurns($options, $prompt);
+        if ($turns) {
+            $transcript = "Conversation so far:\n\n";
+            foreach ($turns as $turn) {
+                $transcript .= ($turn['role'] === 'assistant' ? 'Assistant' : 'User') . ': ' . $turn['content'] . "\n\n";
+            }
+            $prompt = $transcript . "New message from the user:\n" . $prompt;
+        }
         return [
             'prompt'        => $prompt,
             'model'         => $options['model_code']    ?? '',

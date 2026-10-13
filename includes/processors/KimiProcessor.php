@@ -100,7 +100,9 @@ class KimiProcessor implements BaseProcessor {
 
             aiCentral_logMessage("KimiProcessor: Building 2nd tier request with tool results", 'DEBUG');
         } else {
-            // First tier - normal user message
+            // First tier - earlier conversation turns, then the user message
+            [$turns, $prompt] = aiCentral_historyTurns($options, $prompt);
+            $messages = array_merge($messages, $turns);
             $userContent = [];
 
             // Add text first

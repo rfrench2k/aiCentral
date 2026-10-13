@@ -70,8 +70,8 @@ class AIProviderManager {
 
     /**
      * Load model details from database. The same model_code can exist under
-     * multiple providers (e.g. claude-haiku-4-5-20251001 has an Anthropic API
-     * row and a claude_cli row); disambiguate using the constructor's provider
+     * multiple providers (e.g. an Anthropic API row and a claude_cli
+     * row); disambiguate using the constructor's provider
      * argument so we route to the correct processor class.
      */
     private function loadModelDetails() {
@@ -266,6 +266,7 @@ class AIProviderManager {
                 return [
                     'success' => true,
                     'response' => $result['response'],
+                    'model' => $this->model,
                     'usage' => $result['usage'],
                     'cost' => $cost,
                     'tool_calls' => $toolCalls,

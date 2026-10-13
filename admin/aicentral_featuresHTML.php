@@ -222,4 +222,4 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/ai/common/header_ai.php';
 
 <?php require_once $_SERVER['DOCUMENT_ROOT'] . '/ai/common/footer.html'; ?>
 
-<script src="/ai/admin/aicentral_features.js"></script>
+<script src="/ai/admin/aicentral_features.js?v=<?= @filemtime(__DIR__ . '/aicentral_features.js') ?>"></script>

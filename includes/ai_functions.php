@@ -21,9 +21,11 @@ require_once __DIR__ . '/../common/aPRIV_API.php';
  *   'feature_code' => string (required),
  *   'prompt' => string (required),
  *   'options' => array (optional: max_tokens, temperature, system, images, run_id, metadata,
- *                json_schema: a JSON Schema array; on Claude models the response is then valid JSON matching it)
+ *                json_schema: a JSON Schema array; on Claude models the response is then valid JSON matching it,
+ *                history: earlier turns of a conversation, oldest first, as [['role' => 'user'|'assistant', 'content' => string], ...];
+ *                         'prompt' is then the user's newest message)
  * ]
- * @return array ['success' => bool, 'response' => string, 'usage' => array, 'cost' => float, 'error' => string]
+ * @return array ['success' => bool, 'response' => string, 'model' => model_code used, 'usage' => array, 'cost' => float, 'error' => string]
  */
 function ai_makeRequest($params) {
     // Validate required parameters
@@ -137,6 +139,63 @@ function ai_makeRequestWithUserKey($params, $userPref) {
 }
 
 /**
+ * The model a feature uses for a tier: the feature's default_model_<tier> (with the tier row's
+ * provider), else its default_model. When the same model_code exists under several providers
+ * (e.g. an API row and a CLI row), the provider decides which row is used.
+ *
+ * @return array ['model' => ai_models row] or ['error' => string]
+ */
+function ai_pickTierModel($featureConfig, $tier, $tierRow) {
+    $tierCode = $tier['tier_code'];
+    $modelProvider = $featureConfig['default_provider'] ?? null;
+    $tierModelKey = "default_model_" . $tierCode;
+
+    if (!empty($featureConfig[$tierModelKey])) {
+        $modelCode = $featureConfig[$tierModelKey];
+        if (!empty($tierRow['provider_code'])) $modelProvider = $tierRow['provider_code'];
+        aiCentral_logMessage("Using tier-specific model for tier $tierCode: $modelCode", 'INFO');
+    } elseif (!empty($featureConfig['default_model'])) {
+        $modelCode = $featureConfig['default_model'];
+        aiCentral_logMessage("No tier-specific model for tier $tierCode, using feature default: $modelCode", 'INFO');
+    } else {
+        return ['error' => "Feature '{$featureConfig['feature_code']}' is not configured with a model for tier '$tierCode'. Please contact administrator."];
+    }
+
+    $model = ai_getModelByCodeAndProvider($modelCode, $modelProvider);
+    if (!$model) {
+        return ['error' => "Model '$modelCode' not found in database. Please contact administrator."];
+    }
+    return ['model' => $model];
+}
+
+/**
+ * What a feature will run on for this user (system key), so apps never keep their own model lists.
+ *
+ * @return array ['success' => bool, 'model' => model_code, 'model_name' => display name,
+ *                'context_window' => int tokens, 'error' => string]
+ */
+function ai_getFeatureModelInfo($userId, $programId, $featureCode) {
+    $featureConfig = ai_getFeatureConfig($programId, $featureCode);
+    if (!$featureConfig) {
+        return ['success' => false, 'error' => 'Feature not found: ' . $featureCode];
+    }
+    $tier = ai_getUserTier($userId, $programId);
+    if (!$tier) {
+        return ['success' => false, 'error' => 'No tier assigned to user.'];
+    }
+    $picked = ai_pickTierModel($featureConfig, $tier, ai_getFeatureTierRow($featureConfig['feature_id'], $tier['tier_id']));
+    if (!empty($picked['error'])) {
+        return ['success' => false, 'error' => $picked['error']];
+    }
+    return [
+        'success' => true,
+        'model' => $picked['model']['model_code'],
+        'model_name' => $picked['model']['model_display_name'],
+        'context_window' => (int)$picked['model']['context_window']
+    ];
+}
+
+/**
  * Make request with system API key
  */
 function ai_makeRequestWithSystemKey($params, $featureConfig, $userPref) {
@@ -162,28 +221,12 @@ function ai_makeRequestWithSystemKey($params, $featureConfig, $userPref) {
     // Determine model based on tier + feature configuration ONLY
     // User preferences are IGNORED when using system keys
     $tierRow = ai_getFeatureTierRow($featureConfig['feature_id'], $tier['tier_id']);
-    $modelProvider = $featureConfig['default_provider'] ?? null;
-    $tierModelKey = "default_model_" . $tierCode;
-
-    if (isset($featureConfig[$tierModelKey]) && !empty($featureConfig[$tierModelKey])) {
-        $modelCode = $featureConfig[$tierModelKey];
-        if (!empty($tierRow['provider_code'])) $modelProvider = $tierRow['provider_code'];
-        aiCentral_logMessage("Using tier-specific model for tier $tierCode: $modelCode", 'INFO');
-    } elseif (isset($featureConfig['default_model']) && !empty($featureConfig['default_model'])) {
-        $modelCode = $featureConfig['default_model'];
-        aiCentral_logMessage("No tier-specific model for tier $tierCode, using feature default: $modelCode", 'INFO');
-    } else {
-        return ['success' => false, 'error' => "Feature '$featureCode' is not configured with a model for tier '$tierCode'. Please contact administrator."];
+    $picked = ai_pickTierModel($featureConfig, $tier, $tierRow);
+    if (!empty($picked['error'])) {
+        return ['success' => false, 'error' => $picked['error']];
     }
-
-    // Get model from database. When the feature pins a default_provider
-    // (e.g. provider_code='claude_cli'), use that to disambiguate — the same
-    // model_code can exist under multiple providers (one paid via API, one
-    // zero-cost via CLI), and we need to pick the right one.
-    $model = ai_getModelByCodeAndProvider($modelCode, $modelProvider);
-    if (!$model) {
-        return ['success' => false, 'error' => "Model '$modelCode' not found in database. Please contact administrator."];
-    }
+    $model = $picked['model'];
+    $modelCode = $model['model_code'];
 
     // Get provider FROM THE MODEL - provider is determined by the model, not separately
     $provider = ai_getProviderById($model['provider_id']);
@@ -577,10 +620,12 @@ function ai_generateEmbedding($params) {
 }
 
 /**
- * Make an audio transcription request via OpenAI Whisper API.
+ * Make an audio transcription request via the OpenAI transcription API.
  *
  * Uses AI Central for API key management and usage logging, same as
- * ai_makeRequest() does for chat completions.
+ * ai_makeRequest() does for chat completions. The model is the feature's
+ * default_model; its price is ai_models.input_cost_per_million, which for
+ * audio models holds USD per 1,000 minutes of audio.
  *
  * @param array $params Required keys: user_id, program_id, feature_code, audio_file_path
  *                      Optional: audio_mime (default 'audio/webm'), audio_filename, language (default 'en')
@@ -598,6 +643,7 @@ function ai_makeTranscriptionRequest($params) {
     $audioMime = $params['audio_mime'] ?? 'audio/webm';
     $audioFilename = $params['audio_filename'] ?? 'recording.webm';
     $language = $params['language'] ?? 'en';
+    $model = null;
 
     aiCentral_logMessage("Transcription request from user: $userId, program: $programId, feature: $featureCode", 'INFO');
 
@@ -610,7 +656,17 @@ function ai_makeTranscriptionRequest($params) {
             return ['success' => false, 'error' => 'Feature not found: ' . $featureCode];
         }
 
-        // Get API key — Whisper is OpenAI only
+        // The transcription model comes from the feature setting
+        if (empty($featureConfig['default_model'])) {
+            return ['success' => false, 'error' => "Feature '$featureCode' has no transcription model configured."];
+        }
+        $model = ai_getModelByCodeAndProvider($featureConfig['default_model'], $featureConfig['default_provider'] ?? null);
+        if (!$model) {
+            return ['success' => false, 'error' => "Model '{$featureConfig['default_model']}' not found in database."];
+        }
+        $modelCode = $model['model_code'];
+
+        // Get API key — transcription is OpenAI only
         $apiKey = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : '';
         if (empty($apiKey)) {
             return ['success' => false, 'error' => 'OpenAI API key not configured'];
@@ -625,7 +681,18 @@ function ai_makeTranscriptionRequest($params) {
             }
         }
 
-        // Make Whisper API call
+        // whisper models take a single 'language'; newer transcription models take a 'languages' list
+        $fields = [
+            'file' => new CURLFile($audioFilePath, $audioMime, $audioFilename),
+            'model' => $modelCode
+        ];
+        if (strpos($modelCode, 'whisper') === 0) {
+            $fields['language'] = $language;
+            $fields['response_format'] = 'json';
+        } else {
+            $fields['languages[]'] = $language;
+        }
+
         $curl = curl_init();
         curl_setopt_array($curl, [
             CURLOPT_URL => 'https://api.openai.com/v1/audio/transcriptions',
@@ -633,12 +700,7 @@ function ai_makeTranscriptionRequest($params) {
             CURLOPT_TIMEOUT => 30,
             CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => [
-                'file' => new CURLFile($audioFilePath, $audioMime, $audioFilename),
-                'model' => 'whisper-1',
-                'language' => $language,
-                'response_format' => 'json'
-            ],
+            CURLOPT_POSTFIELDS => $fields,
             CURLOPT_HTTPHEADER => [
                 'Authorization: Bearer ' . $apiKey
             ]
@@ -652,32 +714,34 @@ function ai_makeTranscriptionRequest($params) {
         $responseTime = (int)((microtime(true) - $startTime) * 1000);
 
         if ($curlError) {
-            aiCentral_logMessage("Whisper cURL error: $curlError", 'ERROR');
-            ai_logTranscriptionUsage($userId, $programId, $featureCode, 0, 0, $responseTime, 'failed', "cURL error: $curlError");
+            aiCentral_logMessage("Transcription cURL error ($modelCode): $curlError", 'ERROR');
+            ai_logTranscriptionUsage($userId, $programId, $featureCode, $model, 0, 0, $responseTime, 'failed', "cURL error: $curlError");
             return ['success' => false, 'error' => 'Network error. Please try again.'];
         }
 
         if ($httpCode !== 200) {
             $errorData = json_decode($response, true);
             $errorMsg = $errorData['error']['message'] ?? 'Unknown API error';
-            aiCentral_logMessage("Whisper API error ($httpCode): $errorMsg", 'ERROR');
-            ai_logTranscriptionUsage($userId, $programId, $featureCode, 0, 0, $responseTime, 'failed', "API error ($httpCode): $errorMsg");
+            aiCentral_logMessage("Transcription API error ($modelCode, $httpCode): $errorMsg", 'ERROR');
+            ai_logTranscriptionUsage($userId, $programId, $featureCode, $model, 0, 0, $responseTime, 'failed', "API error ($httpCode): $errorMsg");
             return ['success' => false, 'error' => 'Transcription service unavailable.'];
         }
 
         $result = json_decode($response, true);
         $transcribedText = $result['text'] ?? '';
 
-        // Whisper pricing: $0.006 per minute of audio. Estimate from file size (~16KB/sec for webm/opus).
+        // Cost per minute from the model's price. Use the audio length the API reports;
+        // otherwise estimate it from the file size (~16KB/sec for webm/opus).
         $audioSize = filesize($audioFilePath) ?: 0;
-        $estimatedSeconds = max(1, $audioSize / 16000);
-        $estimatedMinutes = $estimatedSeconds / 60;
-        $estimatedCost = round($estimatedMinutes * 0.006, 6);
+        $seconds = (float)($result['usage']['seconds'] ?? $result['duration'] ?? 0);
+        if ($seconds <= 0) $seconds = max(1, $audioSize / 16000);
+        $costPerMinute = (float)$model['input_cost_per_million'] / 1000;
+        $estimatedCost = round(($seconds / 60) * $costPerMinute, 6);
 
         // Log success to AI Central
-        ai_logTranscriptionUsage($userId, $programId, $featureCode, $audioSize, $estimatedCost, $responseTime, 'success', null);
+        ai_logTranscriptionUsage($userId, $programId, $featureCode, $model, $audioSize, $estimatedCost, $responseTime, 'success', null);
 
-        aiCentral_logMessage("Transcription success: " . strlen($transcribedText) . " chars, cost ~\$$estimatedCost, user: $userId", 'INFO');
+        aiCentral_logMessage("Transcription success ($modelCode): " . strlen($transcribedText) . " chars, cost ~\$$estimatedCost, user: $userId", 'INFO');
 
         return [
             'success' => true,
@@ -690,7 +754,7 @@ function ai_makeTranscriptionRequest($params) {
     } catch (Exception $e) {
         $responseTime = (int)((microtime(true) - $startTime) * 1000);
         aiCentral_logMessage("Transcription exception: " . $e->getMessage(), 'ERROR');
-        ai_logTranscriptionUsage($userId, $programId, $featureCode, 0, 0, $responseTime, 'failed', $e->getMessage());
+        ai_logTranscriptionUsage($userId, $programId, $featureCode, $model, 0, 0, $responseTime, 'failed', $e->getMessage());
         return ['success' => false, 'error' => $e->getMessage()];
     }
 }
@@ -698,8 +762,13 @@ function ai_makeTranscriptionRequest($params) {
 /**
  * Log transcription usage to ai_usage_log.
  * Simplified version of AIProviderManager::logUsage for audio transcription.
+ * $model is the ai_models row used (null when the request failed before a model was chosen).
  */
-function ai_logTranscriptionUsage($userId, $programId, $featureCode, $audioSize, $cost, $responseTime, $status, $error) {
+function ai_logTranscriptionUsage($userId, $programId, $featureCode, $model, $audioSize, $cost, $responseTime, $status, $error) {
+    if (!$model) {
+        aiCentral_logMessage("Transcription $status before a model was chosen: $error", 'ERROR');
+        return;
+    }
     $conn = ai_getDBConnection();
     if (!$conn) return;
 
@@ -709,18 +778,19 @@ function ai_logTranscriptionUsage($userId, $programId, $featureCode, $audioSize,
             key_type, input_tokens, output_tokens, thinking_tokens,
             input_cost_usd, output_cost_usd, thinking_cost_usd,
             response_time_ms, status, error_message, request_metadata
-        ) VALUES (?, ?, ?,
-            (SELECT provider_id FROM ai_providers WHERE provider_code = 'openai' LIMIT 1),
-            (SELECT model_id FROM ai_models WHERE model_code = 'whisper-1' LIMIT 1),
+        ) VALUES (?, ?, ?, ?, ?,
             'system', 0, 0, 0,
             ?, 0, 0,
             ?, ?, ?, ?)";
 
         $stmt = $conn->prepare($sql);
         if ($stmt) {
+            $providerId = $model['provider_id'] ?? null;
+            $modelId = $model['model_id'] ?? null;
             $metadata = json_encode(['audio_size_bytes' => $audioSize, 'type' => 'transcription']);
-            $stmt->bind_param('sssdisss',
+            $stmt->bind_param('sssiidisss',
                 $userId, $programId, $featureCode,
+                $providerId, $modelId,
                 $cost,
                 $responseTime, $status, $error, $metadata
             );
@@ -731,5 +801,6 @@ function ai_logTranscriptionUsage($userId, $programId, $featureCode, $audioSize,
         aiCentral_logMessage("Failed to log transcription usage: " . $e->getMessage(), 'ERROR');
     }
 }
+
 
 ?>

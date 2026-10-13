@@ -70,8 +70,8 @@ class ClaudeProcessor implements BaseProcessor {
             $request['system'] = $options['system'];
         }
 
-        // Build messages array
-        $messages = [];
+        // Build messages array: earlier conversation turns first, then this turn
+        [$messages, $prompt] = aiCentral_historyTurns($options, $prompt);
         $content = [];
 
         // Add images if present (must come before text in Claude API)

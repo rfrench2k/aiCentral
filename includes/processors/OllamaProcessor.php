@@ -52,6 +52,9 @@ class OllamaProcessor implements BaseProcessor {
             ];
         }
 
+        // Earlier conversation turns, then the user message
+        [$turns, $prompt] = aiCentral_historyTurns($options, $prompt);
+        $messages = array_merge($messages, $turns);
         // User message
         $messages[] = [
             'role' => 'user',

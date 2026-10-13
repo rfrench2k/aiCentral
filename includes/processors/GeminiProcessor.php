@@ -47,6 +47,16 @@ class GeminiProcessor implements BaseProcessor {
             ];
         }
 
+        // Earlier conversation turns (Gemini calls the assistant side "model")
+        [$turns, $prompt] = aiCentral_historyTurns($options, $prompt);
+        $contents = [];
+        foreach ($turns as $turn) {
+            $contents[] = [
+                'role' => $turn['role'] === 'assistant' ? 'model' : 'user',
+                'parts' => [['text' => $turn['content']]]
+            ];
+        }
+
         // Build contents array
         $parts = [];
 
@@ -68,12 +78,11 @@ class GeminiProcessor implements BaseProcessor {
             aiCentral_logMessage("GeminiProcessor: Added " . count($options['images']) . " images", 'DEBUG');
         }
 
-        $request['contents'] = [
-            [
-                'role' => 'user',
-                'parts' => $parts
-            ]
+        $contents[] = [
+            'role' => 'user',
+            'parts' => $parts
         ];
+        $request['contents'] = $contents;
 
         // Generation config
         $generationConfig = [];

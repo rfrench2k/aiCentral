@@ -246,4 +246,36 @@ function aiCentral_getLookups($lookupName = null) {
     return $lookups;
 }
 
+/**
+ * Earlier turns of a conversation, ready for a provider's messages list.
+ * options['history'] = [['role' => 'user'|'assistant', 'content' => string], ...], oldest first,
+ * not including the current prompt. Empty turns are dropped, back-to-back turns from the same side
+ * are joined, a conversation that opens with the assistant gets a short user opener, and user turns
+ * after the last assistant turn are folded into the prompt, so the list always alternates
+ * user/assistant and ends with the assistant.
+ *
+ * @return array [turns, prompt]
+ */
+function aiCentral_historyTurns($options, $prompt) {
+    $turns = [];
+    foreach ((array)($options['history'] ?? []) as $turn) {
+        $role = (($turn['role'] ?? '') === 'assistant') ? 'assistant' : 'user';
+        $text = trim((string)($turn['content'] ?? ''));
+        if ($text === '') continue;
+        $last = count($turns) - 1;
+        if ($last >= 0 && $turns[$last]['role'] === $role) {
+            $turns[$last]['content'] .= "\n\n" . $text;
+        } else {
+            $turns[] = ['role' => $role, 'content' => $text];
+        }
+    }
+    if ($turns && $turns[0]['role'] === 'assistant') {
+        array_unshift($turns, ['role' => 'user', 'content' => 'Hello.']);
+    }
+    if ($turns && end($turns)['role'] === 'user') {
+        $prompt = array_pop($turns)['content'] . "\n\n" . $prompt;
+    }
+    return [$turns, $prompt];
+}
+
 ?>

@@ -76,6 +76,9 @@ class OpenAIProcessor implements BaseProcessor {
         // OpenAI uses different format: instructions + input (for /v1/responses endpoint)
         // Other providers (Kimi, Grok) use messages array (for /v1/chat/completions endpoint)
 
+        // Earlier conversation turns, oldest first
+        [$turns, $prompt] = aiCentral_historyTurns($options, $prompt);
+
         if ($providerCode === 'openai') {
             // OpenAI /v1/responses format
             // System prompt goes in "instructions"
@@ -91,8 +94,8 @@ class OpenAIProcessor implements BaseProcessor {
                 $request['instructions'] = $instructions;
             }
 
-            // User prompt goes in "input"
-            $request['input'] = $prompt;
+            // User prompt goes in "input" (a list of turns when there is earlier conversation)
+            $request['input'] = $turns ? array_merge($turns, [['role' => 'user', 'content' => $prompt]]) : $prompt;
 
             aiCentral_logMessage("OpenAIProcessor: Using /v1/responses format (instructions + input)", 'DEBUG');
 
@@ -107,6 +110,7 @@ class OpenAIProcessor implements BaseProcessor {
                     'content' => $options['system']
                 ];
             }
+            $messages = array_merge($messages, $turns);
 
             // Build user message content
             $userContent = [];
