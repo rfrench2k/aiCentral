@@ -84,6 +84,9 @@ function getModels() {
             'input_cost_per_million' => (float)$row['input_cost_per_million'],
             'output_cost_per_million' => (float)$row['output_cost_per_million'],
             'thinking_cost_per_million' => $row['thinking_cost_per_million'] ? (float)$row['thinking_cost_per_million'] : null,
+            'cache_read_multiplier' => (float)$row['cache_read_multiplier'],
+            'fast_price_multiplier' => $row['fast_price_multiplier'] !== null ? (float)$row['fast_price_multiplier'] : null,
+            'fallback_mode' => $row['fallback_mode'],
             'pricing_effective_date' => $row['pricing_effective_date'],
             'pricing_end_date' => $row['pricing_end_date'],
             'notes' => $row['notes']
@@ -141,6 +144,9 @@ function saveModel() {
     $inputCost = (float)($_POST['input_cost_per_million'] ?? 0);
     $outputCost = (float)($_POST['output_cost_per_million'] ?? 0);
     $thinkingCost = isset($_POST['thinking_cost_per_million']) && $_POST['thinking_cost_per_million'] !== '' ? (float)$_POST['thinking_cost_per_million'] : NULL;
+    $cacheReadMultiplier = isset($_POST['cache_read_multiplier']) && $_POST['cache_read_multiplier'] !== '' ? (float)$_POST['cache_read_multiplier'] : 0.1;
+    $fastMultiplier = isset($_POST['fast_price_multiplier']) && $_POST['fast_price_multiplier'] !== '' ? (float)$_POST['fast_price_multiplier'] : NULL;
+    $fallbackMode = trim($_POST['fallback_mode'] ?? '') !== '' ? trim($_POST['fallback_mode']) : NULL;
     $effectiveDate = $_POST['pricing_effective_date'] ?? date('Y-m-d');
     $isActive = isset($_POST['is_active']) ? 1 : 0;
     $notes = trim($_POST['notes'] ?? '');
@@ -156,6 +162,10 @@ function saveModel() {
 
     if ($inputCost < 0 || $outputCost < 0) {
         echo json_encode(['success' => false, 'error' => 'Costs must be positive']);
+        return;
+    }
+    if ($cacheReadMultiplier < 0 || $cacheReadMultiplier > 1 || ($fastMultiplier !== NULL && $fastMultiplier < 1)) {
+        echo json_encode(['success' => false, 'error' => 'Cache read price must be between 0 and 1, and fast mode price at least 1']);
         return;
     }
 
@@ -182,6 +192,9 @@ function saveModel() {
                 input_cost_per_million = ?,
                 output_cost_per_million = ?,
                 thinking_cost_per_million = ?,
+                cache_read_multiplier = ?,
+                fast_price_multiplier = ?,
+                fallback_mode = ?,
                 pricing_effective_date = ?,
                 is_active = ?,
                 notes = ?,
@@ -195,7 +208,7 @@ function saveModel() {
             return;
         }
 
-        $stmt->bind_param('isssiiiiiiiddsisi',
+        $stmt->bind_param('isssiiiiiidddddssisi',
             $providerId,            // i
             $modelCode,             // s
             $modelName,             // s
@@ -209,6 +222,9 @@ function saveModel() {
             $inputCost,             // d
             $outputCost,            // d
             $thinkingCost,          // d (NULL safe)
+            $cacheReadMultiplier,   // d
+            $fastMultiplier,        // d (NULL = no fast mode)
+            $fallbackMode,          // s
             $effectiveDate,         // s
             $isActive,              // i
             $notes,                 // s
@@ -221,8 +237,9 @@ function saveModel() {
                 sort_order, max_tokens, context_window, supports_vision,
                 supports_function_calling, supports_streaming,
                 input_cost_per_million, output_cost_per_million, thinking_cost_per_million,
+                cache_read_multiplier, fast_price_multiplier, fallback_mode,
                 pricing_effective_date, is_active, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         $stmt = $conn->prepare($sql);
         if (!$stmt) {
@@ -231,7 +248,7 @@ function saveModel() {
             return;
         }
 
-        $stmt->bind_param('isssiiiiiiiddsisi',
+        $stmt->bind_param('isssiiiiiidddddssis',
             $providerId,            // i
             $modelCode,             // s
             $modelName,             // s
@@ -245,6 +262,9 @@ function saveModel() {
             $inputCost,             // d
             $outputCost,            // d
             $thinkingCost,          // d (NULL safe)
+            $cacheReadMultiplier,   // d
+            $fastMultiplier,        // d (NULL = no fast mode)
+            $fallbackMode,          // s
             $effectiveDate,         // s
             $isActive,              // i
             $notes                  // s

@@ -109,11 +109,28 @@ class AIProviderManager {
      * Make API request using processor pattern
      *
      * @param string $prompt User prompt
-     * @param array $options Options (max_tokens, temperature, system, images, capabilities, etc)
-     * @return array ['success' => bool, 'response' => string, 'usage' => array, 'cost' => float, 'tool_calls' => array, 'tool_cost' => float, 'error' => string]
+     * @param array $options Options (max_tokens, temperature, system, images, capabilities, etc), plus:
+     *   - 'on_text' (callable): stream the reply; called with each piece of text as it arrives
+     *   - 'tools' (array): the app's own tool definitions (provider format)
+     *   - 'tool_handler' (callable): fn(string $name, array $input): string|array, runs those tools;
+     *       the request continues with the results until the model is done (one usage row per round)
+     *   - 'on_tool' (callable): fn(string $name, array $input), told when a tool is about to run
+     *   - 'max_tool_rounds' (int): rounds of tool use allowed (default 4)
+     *   - 'cache' (true|'1h'): prompt-cache the conversation; 'system' may also be a list of
+     *       blocks with their own cache_control
+     *   - 'fallbacks' (false): turn off the model's server-side fallback (on by default where the model has one)
+     *   - 'sources' (array): [['title' => ..., 'text' => ...], ...] passages the reply may quote; on Claude they are
+     *       cited, and 'segments' says which part of the reply came from which source
+     * @return array ['success' => bool, 'response' => string, 'usage' => array, 'cost' => array, 'tool_calls' => array,
+     *                'tool_cost' => float, 'message_id' => string, 'stop_reason' => string, 'error' => string,
+     *                'segments' => [['text' => string, 'citations' => [['source_index', 'cited_text', 'start', 'end'], ...]], ...]]
      */
     public function makeRequest($prompt, $options = []) {
         $startTime = microtime(true);
+        $onText = (isset($options['on_text']) && is_callable($options['on_text'])) ? $options['on_text'] : null;
+        $toolHandler = (isset($options['tool_handler']) && is_callable($options['tool_handler'])) ? $options['tool_handler'] : null;
+        $onTool = (isset($options['on_tool']) && is_callable($options['on_tool'])) ? $options['on_tool'] : null;
+        unset($options['on_text'], $options['tool_handler'], $options['on_tool']);   // never part of a request or log
 
         try {
             // Get processor class from model details
@@ -143,168 +160,158 @@ class AIProviderManager {
             $options['model_code'] = $this->model;
             $options['provider_code'] = $this->provider;
 
+            // The model's server-side fallback (ai_models.fallback_mode), unless the caller turned it off.
+            // Not on a cache warm-up (max_tokens 0), which produces no answer to fall back for.
+            if (!array_key_exists('fallbacks', $options) && !empty($this->modelDetails['fallback_mode'])
+                && (!isset($options['max_tokens']) || (int)$options['max_tokens'] > 0)) {
+                $options['fallbacks'] = $this->modelDetails['fallback_mode'];
+            }
+            if (($options['fallbacks'] ?? null) === false) {
+                unset($options['fallbacks']);
+            }
+
+            // Source passages: citable documents where the processor supports them, else plain prompt text
+            if (!empty($options['sources']) && !method_exists($processor, 'supportsSources')) {
+                $sourceText = '';
+                foreach ($options['sources'] as $source) {
+                    $sourceText .= '<source title="' . htmlspecialchars((string)($source['title'] ?? ''), ENT_QUOTES) . "\">\n" . $source['text'] . "\n</source>\n\n";
+                }
+                $prompt = $sourceText . $prompt;
+                unset($options['sources']);
+            }
+
+            // Stream when the caller takes text as it arrives and the processor can stream
+            // (not on a cache warm-up: max_tokens 0 has no text, and the API refuses to stream it)
+            $streaming = $onText && method_exists($processor, 'streamEvent')
+                && (!isset($options['max_tokens']) || (int)$options['max_tokens'] > 0);
+            if ($streaming) {
+                $options['stream'] = true;
+            }
+
             // Build request using processor
             $requestBody = $processor->buildRequest($prompt, $options);
-
-            // Get endpoint and headers from processor
             $endpoint = $processor->getEndpoint($this->model, $this->provider);
-            $headers = $processor->getHeaders($this->apiKey, $this->provider);
-
             aiCentral_logMessage("API Endpoint: $endpoint", 'DEBUG');
 
-            // Make API call. 'local://' endpoints are handled by the processor
-            // directly (e.g. ClaudeCliProcessor runs a subprocess); everything
-            // else goes through callAPI for HTTP.
-            if (strpos($endpoint, 'local://') === 0 && method_exists($processor, 'executeLocal')) {
-                $apiResponse = $processor->executeLocal($requestBody, $this->model);
-                // Surface the detailed CLI error to the log; parseResponse() collapses
-                // it to a generic "non-200 or non-array response" which is useless
-                // for diagnosing CLI auth / subprocess issues.
-                if (!empty($apiResponse['error'])) {
-                    aiCentral_logMessage("CLI executeLocal error (http={$apiResponse['http_code']}): " . $apiResponse['error'], 'ERROR');
-                }
-            } else {
-                $apiResponse = $this->callAPI($endpoint, $requestBody, $headers);
-            }
+            $maxRounds = ($toolHandler && method_exists($processor, 'assistantTurn')) ? max(0, (int)($options['max_tool_rounds'] ?? 4)) : 0;
+            $responseText = '';
+            $usageTotal = ['input_tokens' => 0, 'output_tokens' => 0, 'thinking_tokens' => 0, 'cache_read_tokens' => 0, 'cache_write_tokens' => 0];
+            $costTotal = ['input_cost' => 0.0, 'output_cost' => 0.0, 'tool_cost' => 0.0, 'thinking_cost' => 0.0, 'total_cost' => 0.0];
+            $allToolCalls = [];
+            $segments = [];
+            $messageId = null;
+            $result = null;
 
-            // Parse response using processor
-            // Pass original request for processors that need it (e.g., KimiProcessor for 2-tier calls)
-            $result = $processor->parseResponse($apiResponse['data'], $apiResponse['http_code'], $requestBody);
+            for ($round = 0; ; $round++) {
+                $roundStart = microtime(true);
+                [$apiResponse, $requestBody] = $this->sendRequest($processor, $endpoint, $requestBody, $streaming ? $onText : null);
 
-            // Add raw request to result for logging
-            $result['raw_request'] = json_encode($requestBody, JSON_PRETTY_PRINT);
+                // Parse response using processor
+                // Pass original request for processors that need it (e.g., KimiProcessor for 2-tier calls)
+                $result = $processor->parseResponse($apiResponse['data'], $apiResponse['http_code'], $requestBody);
 
-            $responseTime = (int)((microtime(true) - $startTime) * 1000);
+                // Add raw request to result for logging
+                $result['raw_request'] = json_encode($requestBody, JSON_PRETTY_PRINT);
+                $loggedPrompt = $round === 0 ? $prompt : "[tool results, round $round] " . $prompt;
 
-            if ($result['success']) {
-                // Parse tool usage from response
-                $toolCalls = [];
-                $toolCallsForCostCalc = [];
-
-                if (isset($result['raw_response_data'])) {
-                    $toolManager = new ToolManager(
-                        $this->provider,
-                        $this->model,
-                        $this->modelDetails['model_id']
+                if (!$result['success']) {
+                    // Log failure - include raw request and response
+                    $this->logUsage(
+                        0,
+                        0,
+                        ['input_cost' => 0, 'output_cost' => 0, 'thinking_cost' => 0, 'tool_cost' => 0, 'total_cost' => 0],
+                        (int)((microtime(true) - $roundStart) * 1000),
+                        'failed',
+                        $result['error'],
+                        $options['run_id'] ?? null,
+                        $loggedPrompt,
+                        null,
+                        $options['metadata'] ?? null,
+                        $result['raw_request'],
+                        [],
+                        0.0,
+                        0,
+                        $result['raw_response_data']
                     );
-                    $toolCalls = $toolManager->parseToolUsage($result['raw_response_data'], $this->provider);
 
-                    // Convert tool calls format for cost calculation
-                    foreach ($toolCalls as $toolCall) {
-                        $toolCallsForCostCalc[$toolCall['type']] = $toolCall['count'];
-                    }
-                }
-
-                // Extract thinking tokens
-                $thinkingTokens = $result['usage']['thinking_tokens'] ?? 0;
-
-                // Cost: when the processor reports its own cost (e.g. ClaudeCliProcessor
-                // reads total_cost_usd straight from the CLI's JSON), trust that over the
-                // token-x-rate calculation. The CLI's cost reflects the real charge to
-                // the Claude Code subscription / $200 credit pool, and the ai_models
-                // rows for claude_cli intentionally have $0 per-token pricing.
-                if (isset($result['cli_total_cost_usd']) && $result['cli_total_cost_usd'] > 0) {
-                    $cliTotal = (float)$result['cli_total_cost_usd'];
-                    $inT = (int)$result['usage']['input_tokens'];
-                    $outT = (int)$result['usage']['output_tokens'];
-                    $sumT = max(1, $inT + $outT);
-                    $costBreakdown = [
-                        'input_cost_usd'     => $cliTotal * ($inT  / $sumT),
-                        'output_cost_usd'    => $cliTotal * ($outT / $sumT),
-                        'tool_call_cost_usd' => 0.0,
-                        'thinking_cost_usd'  => 0.0,
-                        'total_cost_usd'     => $cliTotal,
+                    return [
+                        'success' => false,
+                        'response' => $responseText !== '' ? $responseText : null,
+                        'usage' => null,
+                        'cost' => 0,
+                        'tool_calls' => [],
+                        'tool_cost' => 0.0,
+                        'error' => $result['error']
                     ];
-                } else {
-                    // Standard path: compute from ai_models per-million pricing,
-                    // including prompt-cache read/write tokens.
-                    $costBreakdown = aiCentral_calculateRequestCost(
-                        $this->model,
-                        $result['usage']['input_tokens'],
-                        $result['usage']['output_tokens'],
-                        $toolCallsForCostCalc,
-                        0, // tool_result_tokens
-                        $thinkingTokens,
-                        $result['usage']['cache_read_tokens']     ?? 0,
-                        $result['usage']['cache_write_5m_tokens']  ?? 0,
-                        $result['usage']['cache_write_1h_tokens']  ?? 0
-                    );
                 }
 
-                // Format cost for return/logging
-                $cost = [
-                    'input_cost' => $costBreakdown['input_cost_usd'],
-                    'output_cost' => $costBreakdown['output_cost_usd'],
-                    'tool_cost' => $costBreakdown['tool_call_cost_usd'],
-                    'thinking_cost' => $costBreakdown['thinking_cost_usd'],
-                    'total_cost' => $costBreakdown['total_cost_usd']
-                ];
+                $round_ = $this->recordSuccess($result, $loggedPrompt, $options, $requestBody, (int)((microtime(true) - $roundStart) * 1000));
+                $responseText .= $result['response'];
+                $messageId = $messageId ?? ($result['message_id'] ?? null);
+                foreach ($usageTotal as $k => $v) {
+                    $usageTotal[$k] = $v + (int)($result['usage'][$k] ?? 0);
+                }
+                foreach ($costTotal as $k => $v) {
+                    $costTotal[$k] = $v + (float)($round_['cost'][$k] ?? 0);
+                }
+                $allToolCalls = array_merge($allToolCalls, $round_['tool_calls']);
+                $segments = array_merge($segments, $result['segments'] ?? [['text' => (string)$result['response'], 'citations' => []]]);
 
-                // Log usage
-                $cacheReadTokens  = $result['usage']['cache_read_tokens']  ?? 0;
-                $cacheWriteTokens = $result['usage']['cache_write_tokens'] ?? 0;
-                $this->logUsage(
-                    $result['usage']['input_tokens'],
-                    $result['usage']['output_tokens'],
-                    $cost,
-                    $responseTime,
-                    'success',
-                    null,
-                    $options['run_id'] ?? null,
-                    $prompt,
-                    $result['response'],
-                    $options['metadata'] ?? null,
-                    $result['raw_request'],
-                    $toolCalls,
-                    $cost['tool_cost'],
-                    $thinkingTokens,
-                    $result['raw_response_data'],
-                    $cacheReadTokens,
-                    $cacheWriteTokens
-                );
-
-                return [
-                    'success' => true,
-                    'response' => $result['response'],
-                    'model' => $this->model,
-                    'usage' => $result['usage'],
-                    'cost' => $cost,
-                    'tool_calls' => $toolCalls,
-                    'tool_cost' => $cost['tool_cost'],
-                    'thinking_cost' => $cost['thinking_cost'],
-                    'responseTime' => $responseTime,
-                    'error' => null
-                ];
-            } else {
-                // Log failure - include raw request and response
-                $this->logUsage(
-                    0,
-                    0,
-                    ['input_cost' => 0, 'output_cost' => 0, 'thinking_cost' => 0, 'tool_cost' => 0, 'total_cost' => 0],
-                    $responseTime,
-                    'failed',
-                    $result['error'],
-                    $options['run_id'] ?? null,
-                    $prompt,
-                    null,
-                    $options['metadata'] ?? null,
-                    $result['raw_request'],
-                    [],
-                    0.0,
-                    0,
-                    $result['raw_response_data']
-                );
-
-                return [
-                    'success' => false,
-                    'response' => null,
-                    'usage' => null,
-                    'cost' => 0,
-                    'tool_calls' => [],
-                    'tool_cost' => 0.0,
-                    'error' => $result['error']
-                ];
+                // The app's tools: run what the model asked for, then let it continue
+                if ($round < $maxRounds && ($result['stop_reason'] ?? '') === 'tool_use') {
+                    $toolResults = [];
+                    foreach ($result['content'] ?? [] as $block) {
+                        if (($block['type'] ?? '') !== 'tool_use') {
+                            continue;
+                        }
+                        $input = $block['input'] ?? null;
+                        if (!is_array($input)) {
+                            $toolResults[] = ['type' => 'tool_result', 'tool_use_id' => $block['id'], 'is_error' => true,
+                                'content' => 'INVALID_JSON: the tool input could not be read. Call the tool again with valid JSON.'];
+                            continue;
+                        }
+                        try {
+                            if ($onTool) {
+                                $onTool($block['name'], $input);
+                            }
+                            $output = $toolHandler($block['name'], $input);
+                            $toolResults[] = ['type' => 'tool_result', 'tool_use_id' => $block['id'],
+                                'content' => is_string($output) ? $output : json_encode($output)];
+                        } catch (\Throwable $e) {
+                            aiCentral_logMessage("Tool {$block['name']} failed: " . $e->getMessage(), 'ERROR');
+                            $toolResults[] = ['type' => 'tool_result', 'tool_use_id' => $block['id'], 'is_error' => true,
+                                'content' => 'The tool failed: ' . $e->getMessage()];
+                        }
+                    }
+                    $requestBody['messages'][] = $processor->assistantTurn($result['content']);
+                    $requestBody['messages'][] = ['role' => 'user', 'content' => $toolResults];
+                    if ($responseText !== '' && !preg_match('/\s$/', $responseText)) {
+                        $responseText .= ' ';
+                        if ($streaming) {
+                            $onText(' ');
+                        }
+                    }
+                    continue;
+                }
+                break;
             }
+
+            $costTotal = array_map(fn($v) => round($v, 6), $costTotal);
+            return [
+                'success' => true,
+                'response' => $responseText,
+                'model' => $this->model,
+                'usage' => array_merge($result['usage'], $usageTotal),
+                'cost' => $costTotal,
+                'tool_calls' => $allToolCalls,
+                'tool_cost' => $costTotal['tool_cost'],
+                'thinking_cost' => $costTotal['thinking_cost'],
+                'message_id' => $messageId,
+                'segments' => $segments,
+                'stop_reason' => $result['stop_reason'] ?? null,
+                'responseTime' => (int)((microtime(true) - $startTime) * 1000),
+                'error' => null
+            ];
         } catch (Exception $e) {
             $responseTime = (int)((microtime(true) - $startTime) * 1000);
 
@@ -338,6 +345,206 @@ class AIProviderManager {
                 'error' => $e->getMessage()
             ];
         }
+    }
+
+    /**
+     * Send one built request: run locally (CLI processor), stream, or plain HTTP.
+     * A rate-limited fast-mode request (429) is sent again at standard speed.
+     *
+     * @return array [apiResponse ['data', 'http_code', 'error'], the request as sent]
+     */
+    private function sendRequest($processor, $endpoint, array $requestBody, ?callable $onText) {
+        // 'local://' endpoints are handled by the processor directly (e.g. ClaudeCliProcessor
+        // runs a subprocess); everything else goes over HTTP.
+        if (strpos($endpoint, 'local://') === 0 && method_exists($processor, 'executeLocal')) {
+            $apiResponse = $processor->executeLocal($requestBody, $this->model);
+            // Surface the detailed CLI error to the log; parseResponse() collapses
+            // it to a generic "non-200 or non-array response" which is useless
+            // for diagnosing CLI auth / subprocess issues.
+            if (!empty($apiResponse['error'])) {
+                aiCentral_logMessage("CLI executeLocal error (http={$apiResponse['http_code']}): " . $apiResponse['error'], 'ERROR');
+            }
+            return [$apiResponse, $requestBody];
+        }
+
+        $send = function (array $body) use ($processor, $endpoint, $onText) {
+            $headers = $processor->getHeaders($this->apiKey, $this->provider);
+            if (method_exists($processor, 'betaHeaders')) {
+                $headers = array_merge($headers, $processor->betaHeaders($body));
+            }
+            return $onText ? $this->callAPIStream($processor, $endpoint, $body, $headers, $onText)
+                           : $this->callAPI($endpoint, $body, $headers);
+        };
+
+        $apiResponse = $send($requestBody);
+        if ($apiResponse['http_code'] === 429 && method_exists($processor, 'withoutFastMode')) {
+            $standard = $processor->withoutFastMode($requestBody);
+            if ($standard !== null) {
+                aiCentral_logMessage("Fast mode rate-limited for {$this->model}; sending at standard speed", 'WARNING');
+                $requestBody = $standard;
+                $apiResponse = $send($requestBody);
+            }
+        }
+        return [$apiResponse, $requestBody];
+    }
+
+    /**
+     * Cost and usage log for one successful API call.
+     *
+     * @return array ['cost' => array, 'tool_calls' => array]
+     */
+    private function recordSuccess(array $result, $prompt, array $options, array $requestBody, $responseTime) {
+        // Parse tool usage from response
+        $toolCalls = [];
+        $toolCallsForCostCalc = [];
+
+        if (isset($result['raw_response_data'])) {
+            $toolManager = new ToolManager(
+                $this->provider,
+                $this->model,
+                $this->modelDetails['model_id']
+            );
+            $toolCalls = $toolManager->parseToolUsage($result['raw_response_data'], $this->provider);
+
+            // Convert tool calls format for cost calculation
+            foreach ($toolCalls as $toolCall) {
+                $toolCallsForCostCalc[$toolCall['type']] = $toolCall['count'];
+            }
+        }
+
+        // Extract thinking tokens
+        $thinkingTokens = $result['usage']['thinking_tokens'] ?? 0;
+        $speed = $result['usage']['speed'] ?? ($requestBody['speed'] ?? null);
+
+        // Cost: when the processor reports its own cost (e.g. ClaudeCliProcessor
+        // reads total_cost_usd straight from the CLI's JSON), trust that over the
+        // token-x-rate calculation. The CLI's cost reflects the real charge to
+        // the Claude Code subscription / $200 credit pool, and the ai_models
+        // rows for claude_cli intentionally have $0 per-token pricing.
+        if (isset($result['cli_total_cost_usd']) && $result['cli_total_cost_usd'] > 0) {
+            $cliTotal = (float)$result['cli_total_cost_usd'];
+            $inT = (int)$result['usage']['input_tokens'];
+            $outT = (int)$result['usage']['output_tokens'];
+            $sumT = max(1, $inT + $outT);
+            $costBreakdown = [
+                'input_cost_usd'     => $cliTotal * ($inT  / $sumT),
+                'output_cost_usd'    => $cliTotal * ($outT / $sumT),
+                'tool_call_cost_usd' => 0.0,
+                'thinking_cost_usd'  => 0.0,
+                'total_cost_usd'     => $cliTotal,
+            ];
+        } else {
+            // Standard path: compute from this model row's per-million pricing,
+            // including prompt-cache read/write tokens and fast mode.
+            $costBreakdown = aiCentral_calculateRequestCost(
+                $this->model,
+                $result['usage']['input_tokens'],
+                $result['usage']['output_tokens'],
+                $toolCallsForCostCalc,
+                0, // tool_result_tokens
+                $thinkingTokens,
+                $result['usage']['cache_read_tokens']     ?? 0,
+                $result['usage']['cache_write_5m_tokens']  ?? 0,
+                $result['usage']['cache_write_1h_tokens']  ?? 0,
+                $this->modelDetails['model_id'],
+                $speed
+            );
+        }
+
+        // Format cost for return/logging
+        $cost = [
+            'input_cost' => $costBreakdown['input_cost_usd'],
+            'output_cost' => $costBreakdown['output_cost_usd'],
+            'tool_cost' => $costBreakdown['tool_call_cost_usd'],
+            'thinking_cost' => $costBreakdown['thinking_cost_usd'],
+            'total_cost' => $costBreakdown['total_cost_usd']
+        ];
+
+        // Fast mode is recorded with the call
+        $metadata = $options['metadata'] ?? null;
+        if ($speed && $speed !== 'standard') {
+            if (is_string($metadata)) {
+                $metadata = json_decode($metadata, true) ?: ['note' => $metadata];
+            }
+            $metadata = array_merge((array)$metadata, ['speed' => $speed]);
+        }
+
+        // Log usage
+        $this->logUsage(
+            $result['usage']['input_tokens'],
+            $result['usage']['output_tokens'],
+            $cost,
+            $responseTime,
+            'success',
+            null,
+            $options['run_id'] ?? null,
+            $prompt,
+            $result['response'],
+            $metadata,
+            $result['raw_request'],
+            $toolCalls,
+            $cost['tool_cost'],
+            $thinkingTokens,
+            $result['raw_response_data'],
+            $result['usage']['cache_read_tokens'] ?? 0,
+            $result['usage']['cache_write_tokens'] ?? 0
+        );
+
+        return ['cost' => $cost, 'tool_calls' => $toolCalls];
+    }
+
+    /**
+     * Streamed API call: server-sent events go to the processor (streamEvent), which passes
+     * reply text to $onText as it arrives and assembles the full message.
+     *
+     * @return array ['data' => array, 'http_code' => int, 'error' => string|null] like callAPI()
+     */
+    private function callAPIStream($processor, $endpoint, $body, $headers, callable $onText) {
+        $state = $processor->streamStart();
+        $buffer = '';
+        $errorBody = '';
+
+        $ch = curl_init($endpoint);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_TIMEOUT, AI_REQUEST_TIMEOUT);
+        curl_setopt($ch, CURLOPT_WRITEFUNCTION, function ($ch, $chunk) use (&$buffer, &$errorBody, &$state, $processor, $onText) {
+            if (curl_getinfo($ch, CURLINFO_HTTP_CODE) !== 200) {
+                $errorBody .= $chunk;          // an error reply is plain JSON, not events
+                return strlen($chunk);
+            }
+            $buffer .= str_replace("\r\n", "\n", $chunk);
+            while (($pos = strpos($buffer, "\n\n")) !== false) {
+                $event = substr($buffer, 0, $pos);
+                $buffer = substr($buffer, $pos + 2);
+                foreach (explode("\n", $event) as $line) {
+                    if (strncmp($line, 'data:', 5) === 0) {
+                        $data = json_decode(trim(substr($line, 5)), true);
+                        if (is_array($data)) {
+                            $processor->streamEvent($state, $data, $onText);
+                        }
+                    }
+                }
+            }
+            return strlen($chunk);
+        });
+
+        curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        if ($curlError) {
+            aiCentral_logMessage("CURL error (stream): $curlError", 'ERROR');
+            return ['data' => ['error' => ['message' => 'Curl error: ' . $curlError]], 'http_code' => 0, 'error' => $curlError];
+        }
+        if ($httpCode !== 200) {
+            $data = json_decode($errorBody, true);
+            return ['data' => is_array($data) ? $data : ['error' => ['message' => "HTTP $httpCode"]], 'http_code' => $httpCode, 'error' => null];
+        }
+        $finished = $processor->streamFinish($state);
+        return ['data' => $finished['data'], 'http_code' => $finished['http_code'], 'error' => null];
     }
 
     /**
@@ -524,11 +731,20 @@ class AIProviderManager {
 
             aiCentral_logMessage("Embedding API Endpoint: $endpoint, model: {$this->model}", 'DEBUG');
 
-            // Make API call (reuse callAPI from parent)
-            $apiResponse = $this->callAPI($endpoint, $requestBody, $headers);
+            // Make API call (reuse callAPI from parent). Network errors, rate limits and server
+            // errors are retried with a growing wait (large indexing runs hit them).
+            for ($attempt = 1; ; $attempt++) {
+                $apiResponse = $this->callAPI($endpoint, $requestBody, $headers);
+                $code = $apiResponse['http_code'];
+                if ($code === 200 || $attempt >= 4 || ($code !== 0 && $code !== 429 && $code < 500)) {
+                    break;
+                }
+                aiCentral_logMessage("Embedding request HTTP $code, retrying (attempt $attempt)", 'WARNING');
+                sleep(2 ** $attempt);
+            }
 
             // Parse response
-            $result = $processor->parseEmbeddingResponse($apiResponse['data'], $apiResponse['http_code']);
+            $result = $processor->parseEmbeddingResponse((array)$apiResponse['data'], $apiResponse['http_code']);
 
             $responseTime = (int)((microtime(true) - $startTime) * 1000);
 
@@ -540,7 +756,9 @@ class AIProviderManager {
                     0, // no output tokens for embeddings
                     [],
                     0,
-                    0
+                    0,
+                    0, 0, 0,
+                    $this->modelDetails['model_id']
                 );
 
                 $cost = [
@@ -576,6 +794,7 @@ class AIProviderManager {
                 return [
                     'success' => true,
                     'embeddings' => $result['embeddings'],
+                    'model' => $this->model,
                     'usage' => $result['usage'],
                     'cost' => $cost,
                     'error' => null,

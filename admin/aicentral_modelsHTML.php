@@ -155,6 +155,27 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/ai/common/header_ai.php';
                     </div>
                 </div>
 
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label">Cache Read Price (share of input)</label>
+                        <input type="number" id="aicentral-model-cache-read" class="form-control"
+                               step="0.0001" min="0" max="1" placeholder="0.10">
+                        <small class="text-muted">Prompt-cache reads: 0.10 on most models, 0.05 on Opus 5.5</small>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label">Fast Mode Price (× standard)</label>
+                        <input type="number" id="aicentral-model-fast-multiplier" class="form-control"
+                               step="0.001" min="1" placeholder="No fast mode">
+                        <small class="text-muted">Empty when the model has no fast mode</small>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label">Fallback When Declined</label>
+                        <input type="text" id="aicentral-model-fallback-mode" class="form-control"
+                               maxlength="20" placeholder="None">
+                        <small class="text-muted">"default" lets the provider answer with its fallback model</small>
+                    </div>
+                </div>
+
                 <div class="mb-3">
                     <label class="form-label">Pricing Effective Date *</label>
                     <input type="date" id="aicentral-model-effective-date" class="form-control" required>

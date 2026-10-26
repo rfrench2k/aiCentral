@@ -689,10 +689,20 @@ function aiCentral_buildTierTabs(tierConfigs) {
                     <select id="effort-${tierCode}" class="form-select tier-effort"></select>
                 </div>
 
-                <div class="col-md-3 d-flex align-items-end">
-                    <div class="form-check mb-2">
+                <div class="col-md-3 d-flex flex-column justify-content-end">
+                    <div class="form-check">
                         <input type="checkbox" class="form-check-input tier-thinking-off" id="thinking-off-${tierCode}" ${tierConfig.thinking_off ? 'checked' : ''}>
                         <label class="form-check-label" for="thinking-off-${tierCode}">Thinking off</label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input type="checkbox" class="form-check-input tier-fast" id="fast-${tierCode}" ${tierConfig.speed_code === 'fast' ? 'checked' : ''}>
+                        <label class="form-check-label" for="fast-${tierCode}">
+                            Fast mode
+                            <i class="bi bi-question-circle text-muted"
+                               data-bs-toggle="tooltip"
+                               data-bs-placement="top"
+                               title="Faster replies at a higher price (only on models that have it)"></i>
+                        </label>
                     </div>
                 </div>
 
@@ -756,7 +766,7 @@ function aiCentral_buildTierTabs(tierConfigs) {
     aiCentral_featuresData.tierEffort = {};
     for (const [tierCode, tierConfig] of Object.entries(tierConfigs)) {
         aiCentral_featuresData.tierEffort[tierCode] = tierConfig.effort_code || '';
-        ['provider-', 'model-code-', 'effort-', 'thinking-off-'].forEach(prefix => {
+        ['provider-', 'model-code-', 'effort-', 'thinking-off-', 'fast-'].forEach(prefix => {
             const el = document.getElementById(prefix + tierCode);
             if (el) el.addEventListener('change', () => aiCentral_refreshThinkingControls(tierCode));
         });
@@ -822,6 +832,15 @@ function aiCentral_refreshThinkingControls(tierCode) {
         if (thinkingBox.checked && ['xhigh', 'max'].includes(effortSelect.value)) {
             notes.push('Thinking off only works at high effort or below; at this effort it is ignored.');
         }
+    }
+
+    // Fast mode only on models that have it (ai_models.fast_price_multiplier)
+    const fastBox = document.getElementById(`fast-${tierCode}`);
+    if (fastBox) {
+        const hasFast = !!(model && model.fast_price_multiplier);
+        if (!hasFast) fastBox.checked = false;
+        fastBox.disabled = !hasFast;
+        if (hasFast && fastBox.checked) notes.push(`Fast mode costs ${model.fast_price_multiplier}× the standard price.`);
     }
     hint.textContent = notes.join(' ');
 }
@@ -1233,6 +1252,7 @@ async function aiCentral_saveFeature() {
             capabilities: capabilities,
             effort_code: (document.getElementById(`effort-${tierCode}`) || {}).value || '',
             thinking_off: !!(document.getElementById(`thinking-off-${tierCode}`) || {}).checked,
+            speed_code: (document.getElementById(`fast-${tierCode}`) || {}).checked ? 'fast' : '',
             extra_model_ids: (aiCentral_featuresData.extraModels && aiCentral_featuresData.extraModels[tierCode]) || []
         };
     }

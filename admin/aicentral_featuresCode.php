@@ -186,7 +186,7 @@ function getFeature() {
         $tierId = $tier['tier_id'];
 
         // Get max_output_tokens and model_code for this tier
-        $sql = "SELECT max_output_tokens, model_code, provider_code, effort_code, thinking_off FROM ai_feature_tier_config
+        $sql = "SELECT max_output_tokens, model_code, provider_code, effort_code, thinking_off, speed_code FROM ai_feature_tier_config
                 WHERE feature_id = ? AND tier_id = ?";
         $stmt = $conn->prepare($sql);
         $stmt->bind_param('ii', $featureId, $tierId);
@@ -198,6 +198,7 @@ function getFeature() {
         $tierProvider = null;
         $effortCode = null;
         $thinkingOff = false;
+        $speedCode = null;
         if ($result->num_rows > 0) {
             $row = $result->fetch_assoc();
             $maxOutputTokens = (int)$row['max_output_tokens'];
@@ -205,6 +206,7 @@ function getFeature() {
             $tierProvider = $row['provider_code'];
             $effortCode = $row['effort_code'];
             $thinkingOff = (bool)$row['thinking_off'];
+            $speedCode = $row['speed_code'];
         }
         $stmt->close();
 
@@ -250,6 +252,7 @@ function getFeature() {
             'capabilities' => $capabilities,
             'effort_code' => $effortCode,
             'thinking_off' => $thinkingOff,
+            'speed_code' => $speedCode,
             'extra_model_ids' => $extraModelIds
         ];
     }
@@ -475,6 +478,7 @@ function saveFeature() {
                 return;
             }
             $thinkingOff = empty($tierConfig['thinking_off']) ? 0 : 1;
+            $speedCodeValue = ($tierConfig['speed_code'] ?? '') === 'fast' ? 'fast' : NULL;
 
             // Convert empty model_code to NULL
             $modelCodeValue = empty($modelCode) ? NULL : $modelCode;
@@ -488,11 +492,11 @@ function saveFeature() {
             }
 
             // Save/update tier config
-            $sql = "INSERT INTO ai_feature_tier_config (feature_id, tier_id, max_output_tokens, model_code, provider_code, effort_code, thinking_off)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE max_output_tokens = ?, model_code = ?, provider_code = ?, effort_code = ?, thinking_off = ?, updated_at = NOW()";
+            $sql = "INSERT INTO ai_feature_tier_config (feature_id, tier_id, max_output_tokens, model_code, provider_code, effort_code, thinking_off, speed_code)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE max_output_tokens = ?, model_code = ?, provider_code = ?, effort_code = ?, thinking_off = ?, speed_code = ?, updated_at = NOW()";
             $configStmt = $conn->prepare($sql);
-            $configStmt->bind_param('iiisssiisssi', $id, $tierId, $maxOutputTokens, $modelCodeValue, $tierProviderValue, $effortCodeValue, $thinkingOff, $maxOutputTokens, $modelCodeValue, $tierProviderValue, $effortCodeValue, $thinkingOff);
+            $configStmt->bind_param('iiisssisisssis', $id, $tierId, $maxOutputTokens, $modelCodeValue, $tierProviderValue, $effortCodeValue, $thinkingOff, $speedCodeValue, $maxOutputTokens, $modelCodeValue, $tierProviderValue, $effortCodeValue, $thinkingOff, $speedCodeValue);
             $configStmt->execute();
             $configStmt->close();
 
@@ -637,7 +641,7 @@ function toggleFeatureStatus() {
 function getModels() {
     $conn = ai_getDBConnection();
 
-    $sql = "SELECT m.model_id, m.model_code, m.model_display_name, m.provider_id, p.provider_code, m.thinking_off_mode,
+    $sql = "SELECT m.model_id, m.model_code, m.model_display_name, m.provider_id, p.provider_code, m.thinking_off_mode, m.fast_price_multiplier,
                    (SELECT GROUP_CONCAT(e.effort_code ORDER BY FIELD(e.effort_code, 'low','medium','high','xhigh','max')) FROM ai_model_effort_levels e WHERE e.model_id = m.model_id) AS effort_levels
             FROM ai_models m
             JOIN ai_providers p ON m.provider_id = p.provider_id
@@ -655,6 +659,7 @@ function getModels() {
             'provider_id' => (int)$row['provider_id'],
             'provider_code' => $row['provider_code'],
             'thinking_off_mode' => $row['thinking_off_mode'],
+            'fast_price_multiplier' => $row['fast_price_multiplier'] !== null ? (float)$row['fast_price_multiplier'] : null,
             'effort_levels' => $row['effort_levels'] ? explode(',', $row['effort_levels']) : []
         ];
     }

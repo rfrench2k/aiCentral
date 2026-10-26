@@ -115,18 +115,22 @@ function aiCentral_getLastInsertId($conn) {
  * @param array $toolCalls Tool usage counts ['web_search' => 2, 'vision' => 1]
  * @param int $toolResultTokens Tokens in tool results (OpenAI dual billing)
  * @param int $thinkingTokens Extended thinking tokens (Claude Opus)
+ * @param int $modelId The exact ai_models row (a model_code can exist under several providers with different prices)
+ * @param string $speed 'fast' when the request ran in fast mode (priced with the model's fast_price_multiplier)
  * @return array Cost breakdown with all components
  */
-function aiCentral_calculateRequestCost($modelCode, $inputTokens, $outputTokens, $toolCalls = [], $toolResultTokens = 0, $thinkingTokens = 0, $cacheReadTokens = 0, $cacheWrite5mTokens = 0, $cacheWrite1hTokens = 0) {
+function aiCentral_calculateRequestCost($modelCode, $inputTokens, $outputTokens, $toolCalls = [], $toolResultTokens = 0, $thinkingTokens = 0, $cacheReadTokens = 0, $cacheWrite5mTokens = 0, $cacheWrite1hTokens = 0, $modelId = null, $speed = null) {
     $conn = ai_getDBConnection();
 
-    // Get model pricing
-    $sql = "SELECT input_cost_per_million, output_cost_per_million, thinking_cost_per_million, model_id
-            FROM ai_models
-            WHERE model_code = ? AND is_active = 1
-            LIMIT 1";
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param('s', $modelCode);
+    // Get model pricing: by row when known, else by code
+    $columns = "input_cost_per_million, output_cost_per_million, thinking_cost_per_million, model_id, cache_read_multiplier, fast_price_multiplier";
+    if ($modelId) {
+        $stmt = $conn->prepare("SELECT $columns FROM ai_models WHERE model_id = ? LIMIT 1");
+        $stmt->bind_param('i', $modelId);
+    } else {
+        $stmt = $conn->prepare("SELECT $columns FROM ai_models WHERE model_code = ? AND is_active = 1 LIMIT 1");
+        $stmt->bind_param('s', $modelCode);
+    }
     $stmt->execute();
     $result = $stmt->get_result();
 
@@ -145,14 +149,21 @@ function aiCentral_calculateRequestCost($modelCode, $inputTokens, $outputTokens,
     $model = $result->fetch_assoc();
     $stmt->close();
 
+    // Fast mode multiplies every token price
+    $speedFactor = ($speed === 'fast' && !empty($model['fast_price_multiplier'])) ? (float)$model['fast_price_multiplier'] : 1.0;
+    $model['input_cost_per_million'] *= $speedFactor;
+    $model['output_cost_per_million'] *= $speedFactor;
+    $model['thinking_cost_per_million'] = ($model['thinking_cost_per_million'] ?? 0) * $speedFactor;
+
     // Calculate token costs
     $inputCost = ($inputTokens / 1000000) * $model['input_cost_per_million'];
 
-    // Prompt-cache costs, priced off the input rate: reads ~0.1x, 5-minute writes
-    // ~1.25x, 1-hour writes ~2x. Folded into the input cost so per-row and summary
-    // totals reflect the true charge.
+    // Prompt-cache costs, priced off the input rate: reads at the model's cache_read_multiplier
+    // (0.1x on most models), 5-minute writes 1.25x, 1-hour writes 2x. Folded into the input cost
+    // so per-row and summary totals reflect the true charge.
     $inPerM = $model['input_cost_per_million'];
-    $cacheCost = (($cacheReadTokens    / 1000000) * $inPerM * 0.10)
+    $readFactor = isset($model['cache_read_multiplier']) ? (float)$model['cache_read_multiplier'] : 0.10;
+    $cacheCost = (($cacheReadTokens    / 1000000) * $inPerM * $readFactor)
                + (($cacheWrite5mTokens / 1000000) * $inPerM * 1.25)
                + (($cacheWrite1hTokens / 1000000) * $inPerM * 2.00);
     $inputCost += $cacheCost;

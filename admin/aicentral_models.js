@@ -337,6 +337,9 @@ function aiCentral_showAddModelDialog() {
     document.getElementById('aicentral-model-input-cost').value = '';
     document.getElementById('aicentral-model-output-cost').value = '';
     document.getElementById('aicentral-model-thinking-cost').value = '';
+    document.getElementById('aicentral-model-cache-read').value = '0.1';
+    document.getElementById('aicentral-model-fast-multiplier').value = '';
+    document.getElementById('aicentral-model-fallback-mode').value = '';
     document.getElementById('aicentral-model-effective-date').value = new Date().toISOString().split('T')[0];
     document.getElementById('aicentral-model-vision').checked = false;
     document.getElementById('aicentral-model-functions').checked = false;
@@ -373,6 +376,9 @@ function aiCentral_editModel(modelId) {
     document.getElementById('aicentral-model-input-cost').value = model.input_cost_per_million;
     document.getElementById('aicentral-model-output-cost').value = model.output_cost_per_million;
     document.getElementById('aicentral-model-thinking-cost').value = model.thinking_cost_per_million || 0;
+    document.getElementById('aicentral-model-cache-read').value = model.cache_read_multiplier;
+    document.getElementById('aicentral-model-fast-multiplier').value = model.fast_price_multiplier ?? '';
+    document.getElementById('aicentral-model-fallback-mode').value = model.fallback_mode || '';
 
     // Ensure date is in YYYY-MM-DD format
     let effectiveDate = model.pricing_effective_date;
@@ -432,6 +438,9 @@ async function aiCentral_saveModel() {
         input_cost_per_million: document.getElementById('aicentral-model-input-cost').value,
         output_cost_per_million: document.getElementById('aicentral-model-output-cost').value,
         thinking_cost_per_million: document.getElementById('aicentral-model-thinking-cost').value || 0,
+        cache_read_multiplier: document.getElementById('aicentral-model-cache-read').value,
+        fast_price_multiplier: document.getElementById('aicentral-model-fast-multiplier').value,
+        fallback_mode: document.getElementById('aicentral-model-fallback-mode').value.trim(),
         pricing_effective_date: effectiveDate,
         notes: document.getElementById('aicentral-model-notes').value
     });

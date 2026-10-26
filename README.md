@@ -1,4 +1,4 @@
-﻿# AI Central Platform
+# AI Central Platform
 
 A PHP/MySQL hub that fronts every major AI provider for a fleet of apps. One call to add AI to a new feature, one dashboard for cost across providers, tier-based access control built in.
 
@@ -10,7 +10,7 @@ A PHP/MySQL hub that fronts every major AI provider for a fleet of apps. One cal
 
 **Swap models per feature, per tier, without touching code.** Each feature has a default model plus per-tier overrides — free tier can route to Haiku, pro to Sonnet, unlimited to Opus. The app keeps making the same call; admin changes the model assignment in the UI. Same for max output tokens and capability allowances (web search, vision, file access).
 
-**Tier-based access control.** Tiers (free, basic, pro, unlimited — configurable) control which models a user can pick, which capabilities are available per feature, daily and monthly request and token limits, and monthly spend caps. Quotas have configurable grace and hard-stop thresholds. The `app_level_ai_mapping` table maps your auth module's user levels to AI tiers automatically.
+**Tier-based access control.** Tiers (free, basic, pro, unlimited — configurable) control which models a user can pick, which capabilities are available per feature, daily and monthly request and token limits, and monthly spend caps. Quotas have configurable grace and hard-stop thresholds. Monthly spend limits are enforced per user per program, and a program can have its own monthly budget (`programs.monthly_spend_limit_usd`) that covers every request paid with the system keys, passthrough included. The `app_level_ai_mapping` table maps your auth module's user levels to AI tiers automatically.
 
 **Bring your own key.** Users can add their own provider API keys, stored AES-256 encrypted with per-key random IV. When a user sets a feature to "use my key," AI Central swaps their key in for that user's calls — and quota checks are bypassed since the user is paying the provider directly. Keys can be tested in-place against the provider before being saved.
 
@@ -18,7 +18,11 @@ A PHP/MySQL hub that fronts every major AI provider for a fleet of apps. One cal
 
 **Passthrough mode for public programs.** Some apps need AI without per-user registration (a public discovery page, a marketing tool). Mark the program `passthrough_mode = 1` and set a `passthrough_tier_id`. AI Central uses the program's tier for model selection and skips per-user quota checks. Cost still rolls up against the program.
 
-**Embeddings and audio transcription.** `ai_generateEmbedding()` routes to OpenAI or Ollama embedding endpoints; `ai_makeTranscriptionRequest()` routes to OpenAI Whisper. Same cost tracking, same tier and quota mechanics as chat requests.
+**Streaming, app tools and prompt caching.** Pass `on_text` and the reply streams to the app as it is written. Pass the app's own `tools` plus a `tool_handler`, and AI Central runs the tool loop: it calls the handler for each tool the model asks for and continues until the model is done (one usage row per round). Pass `sources` (titled passages) and, on Claude models, the reply comes back as `segments` tied to the exact source text each part quotes (citations). The system prompt can be a list of blocks with cache breakpoints, and `cache` caches the conversation; cache reads are priced per model (`ai_models.cache_read_multiplier`).
+
+**Fast mode and fallbacks, per feature.** A feature tier can run at fast speed (Admin > Features, "Fast mode"; only on models with a `fast_price_multiplier`, priced accordingly). A fast request that hits the fast-mode rate limit is re-sent at standard speed. Models with a `fallback_mode` answer through the provider's fallback model when their safety classifiers decline.
+
+**Embeddings and audio.** `ai_generateEmbedding()` routes to OpenAI or Ollama embedding endpoints (transient errors are retried); `ai_makeTranscriptionRequest()` routes to OpenAI speech-to-text and `ai_makeSpeechRequest()` to OpenAI text-to-speech. Same cost tracking, same tier and quota mechanics as chat requests.
 
 **Universal embeddable chatbot.** One PHP include plus one JS init call gives any app a working chatbot — sidebar or floating bubble style. Persistent conversations per user per program, auto-titled from the first message. Each chat type defines its system prompt, default model, history length, and retention. Every assistant response links back to its `ai_usage_log` row so chatbot cost rolls into the same dashboard.
 
@@ -191,6 +195,26 @@ if ($result['success']) {
 ```
 
 Register the feature once in the admin Features page (set program, code, default model, per-tier overrides), and the app is wired in. Switching providers later means editing one row in the UI — no code change in the app.
+
+A streamed chat with the app's own tool (Claude models):
+
+```
+$result = ai_makeRequest([
+    'user_id' => $userId, 'program_id' => 'MYAPP', 'feature_code' => 'assistant_chat',
+    'prompt'  => $newMessage,
+    'options' => [
+        'system'  => [['type' => 'text', 'text' => $longInstructions, 'cache_control' => ['type' => 'ephemeral']]],
+        'history' => $earlierTurns,          // [['role' => 'user'|'assistant', 'content' => '...'], ...]
+        'cache'   => true,                   // cache the conversation as well
+        'tools'   => [['name' => 'lookup', 'description' => '...', 'input_schema' => [...]]],
+        'tool_handler' => fn(string $name, array $input) => myLookup($input),   // string or array back
+        'on_text' => function (string $text) { echo $text; flush(); },
+    ],
+]);
+// $result['response'] is the whole reply; $result['message_id'], ['stop_reason'], ['usage'], ['cost'] are totals.
+```
+
+Text to speech: `ai_makeSpeechRequest(['user_id', 'program_id', 'feature_code', 'text', 'voice'])` returns `['audio' => mp3 bytes]`.
 
 ## Server-to-server API
 

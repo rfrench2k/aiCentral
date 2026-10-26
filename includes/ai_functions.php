@@ -23,9 +23,22 @@ require_once __DIR__ . '/../common/aPRIV_API.php';
  *   'options' => array (optional: max_tokens, temperature, system, images, run_id, metadata,
  *                json_schema: a JSON Schema array; on Claude models the response is then valid JSON matching it,
  *                history: earlier turns of a conversation, oldest first, as [['role' => 'user'|'assistant', 'content' => string], ...];
- *                         'prompt' is then the user's newest message)
+ *                         'prompt' is then the user's newest message,
+ *                system: a string, or (Claude) a list of text blocks, some with 'cache_control' for prompt caching,
+ *                cache: true (5-minute) or '1h' to prompt-cache the conversation (Claude),
+ *                on_text: callable(string $text) — the reply is streamed and passed in pieces as it arrives,
+ *                tools: the app's own tool definitions (Claude format: name, description, input_schema),
+ *                tool_handler: callable(string $name, array $input): string|array — runs those tools; the request
+ *                              continues with their results (one usage-log row per round),
+ *                on_tool: callable(string $name, array $input) — told before each tool runs,
+ *                max_tool_rounds: int (default 4),
+ *                fallbacks: false to turn off the model's server-side fallback,
+ *                sources: [['title' => ..., 'text' => ...], ...] passages the reply may quote; on Claude models the
+ *                         result's 'segments' tie each part of the reply to the exact source text it came from.
+ *                Model, max tokens, effort, thinking and fast mode come from the feature's tier settings.)
  * ]
- * @return array ['success' => bool, 'response' => string, 'model' => model_code used, 'usage' => array, 'cost' => float, 'error' => string]
+ * @return array ['success' => bool, 'response' => string, 'model' => model_code used, 'usage' => array, 'cost' => array,
+ *                'message_id' => string, 'stop_reason' => string, 'segments' => array, 'error' => string]
  */
 function ai_makeRequest($params) {
     // Validate required parameters
@@ -179,7 +192,14 @@ function ai_getFeatureModelInfo($userId, $programId, $featureCode) {
     if (!$featureConfig) {
         return ['success' => false, 'error' => 'Feature not found: ' . $featureCode];
     }
-    $tier = ai_getUserTier($userId, $programId);
+    // Passthrough programs run on the program's tier, not the user's
+    $programConfig = ai_getProgramConfig($programId);
+    if ($programConfig && $programConfig['passthrough_mode']) {
+        $result = aiCentral_executeQuery(ai_getDBConnection(), "SELECT * FROM ai_tiers WHERE tier_id = ?", [$programConfig['passthrough_tier_id']], 'i');
+        $tier = $result ? $result->fetch_assoc() : null;
+    } else {
+        $tier = ai_getUserTier($userId, $programId);
+    }
     if (!$tier) {
         return ['success' => false, 'error' => 'No tier assigned to user.'];
     }
@@ -341,6 +361,10 @@ function ai_makeRequestPassthrough($params, $featureConfig, $programConfig) {
 
     aiCentral_logMessage("Passthrough mode for program $programId, user $userId", 'INFO');
 
+    if ($budgetError = ai_checkProgramBudget($programConfig)) {
+        return ['success' => false, 'error' => $budgetError];
+    }
+
     // Get tier from program config
     $tierId = $programConfig['passthrough_tier_id'];
     $conn = ai_getDBConnection();
@@ -423,9 +447,49 @@ function ai_makeRequestPassthrough($params, $featureConfig, $programConfig) {
 }
 
 /**
+ * Dollars spent through AI Central this calendar month: by a program, or by one user in it.
+ */
+function ai_monthSpend($programId, $userId = null) {
+    $conn = ai_getDBConnection();
+    $sql = "SELECT COALESCE(SUM(total_cost_usd), 0) AS spent FROM ai_usage_log
+            WHERE program_id = ? AND request_timestamp >= DATE_FORMAT(CURDATE(), '%Y-%m-01')";
+    if ($userId === null) {
+        $result = aiCentral_executeQuery($conn, $sql, [$programId], 's');
+    } else {
+        $result = aiCentral_executeQuery($conn, $sql . " AND user_id = ?", [$programId, $userId], 'ss');
+    }
+    return $result ? (float)$result->fetch_assoc()['spent'] : 0.0;
+}
+
+/**
+ * The program's monthly budget (programs.monthly_spend_limit_usd; NULL = none), for every request
+ * paid with the system keys, passthrough included.
+ *
+ * @return string|null Error message when the budget is used up, else null
+ */
+function ai_checkProgramBudget($programConfig) {
+    $limit = $programConfig['monthly_spend_limit_usd'] ?? null;
+    if ($limit === null || $limit === '') {
+        return null;
+    }
+    $spent = ai_monthSpend($programConfig['program_id']);
+    if ($spent >= (float)$limit) {
+        aiCentral_logMessage("Program {$programConfig['program_id']} reached its monthly AI budget: \$" . round($spent, 2) . " of \$$limit", 'WARNING');
+        return 'The monthly AI budget for this app has been reached. Please try again next month or ask the administrator.';
+    }
+    return null;
+}
+
+/**
  * Check if user is within quota
  */
 function ai_checkQuota($userId, $programId) {
+    // The program's own monthly budget comes first: it applies on every tier
+    $programConfig = ai_getProgramConfig($programId);
+    if ($programConfig && ($budgetError = ai_checkProgramBudget($programConfig))) {
+        return ['allowed' => false, 'message' => $budgetError];
+    }
+
     // Get user's tier
     $tier = ai_getUserTier($userId, $programId);
     if (!$tier) {
@@ -474,6 +538,15 @@ function ai_checkQuota($userId, $programId) {
         }
     }
 
+    // Check monthly spend limit (this user, this program)
+    if ($tier['monthly_spend_limit_usd'] !== null && $tier['monthly_spend_limit_usd'] !== '') {
+        $limit = (float)$tier['monthly_spend_limit_usd'];
+        $hardLimit = $limit * (QUOTA_HARD_STOP_PERCENT / 100);
+        if (ai_monthSpend($programId, $userId) >= $hardLimit) {
+            return ['allowed' => false, 'message' => 'Monthly AI spending limit reached. Please upgrade your tier or use your own API key.'];
+        }
+    }
+
     return ['allowed' => true];
 }
 
@@ -510,7 +583,7 @@ function ai_testKey($provider, $model, $apiKey) {
  *   'input' => string|array (required - text or array of texts to embed),
  *   'options' => array (optional: dimensions, run_id, metadata)
  * ]
- * @return array ['success' => bool, 'embeddings' => array, 'usage' => array, 'cost' => array, 'error' => string|null]
+ * @return array ['success' => bool, 'embeddings' => array, 'model' => model_code used, 'usage' => array, 'cost' => array, 'error' => string|null]
  */
 function ai_generateEmbedding($params) {
     if (!isset($params['user_id']) || !isset($params['program_id']) || !isset($params['feature_code']) || !isset($params['input'])) {
@@ -540,6 +613,9 @@ function ai_generateEmbedding($params) {
         $modelCode = null;
 
         if ($isPassthrough) {
+            if ($budgetError = ai_checkProgramBudget($programConfig)) {
+                return ['success' => false, 'error' => $budgetError];
+            }
             // Passthrough: use program's tier for model selection
             $tierId = $programConfig['passthrough_tier_id'];
             $conn = ai_getDBConnection();
@@ -628,7 +704,8 @@ function ai_generateEmbedding($params) {
  * audio models holds USD per 1,000 minutes of audio.
  *
  * @param array $params Required keys: user_id, program_id, feature_code, audio_file_path
- *                      Optional: audio_mime (default 'audio/webm'), audio_filename, language (default 'en')
+ *                      Optional: audio_mime (default 'audio/webm'), audio_filename, language (default 'en'; null = detect),
+ *                      timeout (seconds, default 30; long recordings need more)
  * @return array ['success' => bool, 'text' => string, 'cost' => array, 'error' => string|null]
  */
 function ai_makeTranscriptionRequest($params) {
@@ -642,7 +719,8 @@ function ai_makeTranscriptionRequest($params) {
     $audioFilePath = $params['audio_file_path'];
     $audioMime = $params['audio_mime'] ?? 'audio/webm';
     $audioFilename = $params['audio_filename'] ?? 'recording.webm';
-    $language = $params['language'] ?? 'en';
+    $language = array_key_exists('language', $params) ? $params['language'] : 'en';
+    $timeout = (int)($params['timeout'] ?? 30);
     $model = null;
 
     aiCentral_logMessage("Transcription request from user: $userId, program: $programId, feature: $featureCode", 'INFO');
@@ -650,36 +728,13 @@ function ai_makeTranscriptionRequest($params) {
     $startTime = microtime(true);
 
     try {
-        // Get feature configuration
-        $featureConfig = ai_getFeatureConfig($programId, $featureCode);
-        if (!$featureConfig) {
-            return ['success' => false, 'error' => 'Feature not found: ' . $featureCode];
+        $setup = ai_audioFeatureSetup($userId, $programId, $featureCode);
+        if (!empty($setup['error'])) {
+            return ['success' => false, 'error' => $setup['error']];
         }
-
-        // The transcription model comes from the feature setting
-        if (empty($featureConfig['default_model'])) {
-            return ['success' => false, 'error' => "Feature '$featureCode' has no transcription model configured."];
-        }
-        $model = ai_getModelByCodeAndProvider($featureConfig['default_model'], $featureConfig['default_provider'] ?? null);
-        if (!$model) {
-            return ['success' => false, 'error' => "Model '{$featureConfig['default_model']}' not found in database."];
-        }
+        $model = $setup['model'];
         $modelCode = $model['model_code'];
-
-        // Get API key — transcription is OpenAI only
-        $apiKey = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : '';
-        if (empty($apiKey)) {
-            return ['success' => false, 'error' => 'OpenAI API key not configured'];
-        }
-
-        // Check quota for passthrough / normal mode
-        $programConfig = ai_getProgramConfig($programId);
-        if (!$programConfig || !$programConfig['passthrough_mode']) {
-            $quotaCheck = ai_checkQuota($userId, $programId);
-            if (!$quotaCheck['allowed']) {
-                return ['success' => false, 'error' => $quotaCheck['message']];
-            }
-        }
+        $apiKey = $setup['api_key'];
 
         // whisper models take a single 'language'; newer transcription models take a 'languages' list
         $fields = [
@@ -687,9 +742,9 @@ function ai_makeTranscriptionRequest($params) {
             'model' => $modelCode
         ];
         if (strpos($modelCode, 'whisper') === 0) {
-            $fields['language'] = $language;
+            if ($language) $fields['language'] = $language;
             $fields['response_format'] = 'json';
-        } else {
+        } elseif ($language) {
             $fields['languages[]'] = $language;
         }
 
@@ -697,7 +752,7 @@ function ai_makeTranscriptionRequest($params) {
         curl_setopt_array($curl, [
             CURLOPT_URL => 'https://api.openai.com/v1/audio/transcriptions',
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 30,
+            CURLOPT_TIMEOUT => $timeout,
             CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $fields,
@@ -715,7 +770,7 @@ function ai_makeTranscriptionRequest($params) {
 
         if ($curlError) {
             aiCentral_logMessage("Transcription cURL error ($modelCode): $curlError", 'ERROR');
-            ai_logTranscriptionUsage($userId, $programId, $featureCode, $model, 0, 0, $responseTime, 'failed', "cURL error: $curlError");
+            ai_logAudioUsage($userId, $programId, $featureCode, $model, ['type' => 'transcription'], 0, $responseTime, 'failed', "cURL error: $curlError");
             return ['success' => false, 'error' => 'Network error. Please try again.'];
         }
 
@@ -723,7 +778,7 @@ function ai_makeTranscriptionRequest($params) {
             $errorData = json_decode($response, true);
             $errorMsg = $errorData['error']['message'] ?? 'Unknown API error';
             aiCentral_logMessage("Transcription API error ($modelCode, $httpCode): $errorMsg", 'ERROR');
-            ai_logTranscriptionUsage($userId, $programId, $featureCode, $model, 0, 0, $responseTime, 'failed', "API error ($httpCode): $errorMsg");
+            ai_logAudioUsage($userId, $programId, $featureCode, $model, ['type' => 'transcription'], 0, $responseTime, 'failed', "API error ($httpCode): $errorMsg");
             return ['success' => false, 'error' => 'Transcription service unavailable.'];
         }
 
@@ -739,7 +794,7 @@ function ai_makeTranscriptionRequest($params) {
         $estimatedCost = round(($seconds / 60) * $costPerMinute, 6);
 
         // Log success to AI Central
-        ai_logTranscriptionUsage($userId, $programId, $featureCode, $model, $audioSize, $estimatedCost, $responseTime, 'success', null);
+        ai_logAudioUsage($userId, $programId, $featureCode, $model, ['type' => 'transcription', 'audio_size_bytes' => $audioSize, 'seconds' => $seconds], $estimatedCost, $responseTime, 'success', null);
 
         aiCentral_logMessage("Transcription success ($modelCode): " . strlen($transcribedText) . " chars, cost ~\$$estimatedCost, user: $userId", 'INFO');
 
@@ -754,19 +809,136 @@ function ai_makeTranscriptionRequest($params) {
     } catch (Exception $e) {
         $responseTime = (int)((microtime(true) - $startTime) * 1000);
         aiCentral_logMessage("Transcription exception: " . $e->getMessage(), 'ERROR');
-        ai_logTranscriptionUsage($userId, $programId, $featureCode, $model, 0, 0, $responseTime, 'failed', $e->getMessage());
+        ai_logAudioUsage($userId, $programId, $featureCode, $model, ['type' => 'transcription'], 0, $responseTime, 'failed', $e->getMessage());
         return ['success' => false, 'error' => $e->getMessage()];
     }
 }
 
 /**
- * Log transcription usage to ai_usage_log.
- * Simplified version of AIProviderManager::logUsage for audio transcription.
- * $model is the ai_models row used (null when the request failed before a model was chosen).
+ * Text to speech via the OpenAI speech API, with AI Central's key and usage log.
+ * The model is the feature's default_model; its input_cost_per_million is USD per 1M characters.
+ *
+ * @param array $params Required keys: user_id, program_id, feature_code, text
+ *                      Optional: voice (default 'alloy'), format (mp3|opus|aac|flac|wav|pcm, default 'mp3'),
+ *                      instructions (how to speak; gpt-4o-mini-tts and later), metadata
+ * @return array ['success' => bool, 'audio' => binary string, 'mime' => string, 'cost' => array, 'error' => string|null]
  */
-function ai_logTranscriptionUsage($userId, $programId, $featureCode, $model, $audioSize, $cost, $responseTime, $status, $error) {
+function ai_makeSpeechRequest($params) {
+    if (!isset($params['user_id']) || !isset($params['program_id']) || !isset($params['feature_code']) || !isset($params['text'])) {
+        return ['success' => false, 'error' => 'Missing required parameters (user_id, program_id, feature_code, text)'];
+    }
+
+    $userId = $params['user_id'];
+    $programId = $params['program_id'];
+    $featureCode = $params['feature_code'];
+    $text = (string)$params['text'];
+    $format = $params['format'] ?? 'mp3';
+    $model = null;
+    $details = array_merge((array)($params['metadata'] ?? []), ['type' => 'speech', 'characters' => mb_strlen($text)]);
+
+    aiCentral_logMessage("Speech request from user: $userId, program: $programId, feature: $featureCode", 'INFO');
+    $startTime = microtime(true);
+
+    try {
+        $setup = ai_audioFeatureSetup($userId, $programId, $featureCode);
+        if (!empty($setup['error'])) {
+            return ['success' => false, 'error' => $setup['error']];
+        }
+        $model = $setup['model'];
+
+        $body = ['model' => $model['model_code'], 'input' => $text, 'voice' => $params['voice'] ?? 'alloy', 'response_format' => $format];
+        if (!empty($params['instructions'])) {
+            $body['instructions'] = $params['instructions'];
+        }
+
+        $curl = curl_init();
+        curl_setopt_array($curl, [
+            CURLOPT_URL => 'https://api.openai.com/v1/audio/speech',
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 120,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($body),
+            CURLOPT_HTTPHEADER => [
+                'Authorization: Bearer ' . $setup['api_key'],
+                'Content-Type: application/json'
+            ]
+        ]);
+        $audio = curl_exec($curl);
+        $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        $mime = curl_getinfo($curl, CURLINFO_CONTENT_TYPE) ?: 'audio/mpeg';
+        $curlError = curl_error($curl);
+        curl_close($curl);
+
+        $responseTime = (int)((microtime(true) - $startTime) * 1000);
+
+        if ($curlError || $httpCode !== 200) {
+            $errorData = $curlError ? null : json_decode($audio, true);
+            $errorMsg = $curlError ? "cURL error: $curlError" : "API error ($httpCode): " . ($errorData['error']['message'] ?? 'Unknown API error');
+            aiCentral_logMessage("Speech {$model['model_code']}: $errorMsg", 'ERROR');
+            ai_logAudioUsage($userId, $programId, $featureCode, $model, $details, 0, $responseTime, 'failed', $errorMsg);
+            return ['success' => false, 'error' => 'Speech service unavailable.'];
+        }
+
+        $cost = round($details['characters'] * (float)$model['input_cost_per_million'] / 1000000, 6);
+        ai_logAudioUsage($userId, $programId, $featureCode, $model, $details, $cost, $responseTime, 'success', null);
+
+        return ['success' => true, 'audio' => $audio, 'mime' => $mime, 'cost' => ['total_cost' => $cost], 'responseTime' => $responseTime, 'error' => null];
+
+    } catch (Exception $e) {
+        $responseTime = (int)((microtime(true) - $startTime) * 1000);
+        aiCentral_logMessage("Speech exception: " . $e->getMessage(), 'ERROR');
+        ai_logAudioUsage($userId, $programId, $featureCode, $model, $details, 0, $responseTime, 'failed', $e->getMessage());
+        return ['success' => false, 'error' => $e->getMessage()];
+    }
+}
+
+/**
+ * The model and key an audio feature (transcription, speech) runs on, after the quota check.
+ * The model is the feature's default_model; audio is OpenAI only.
+ *
+ * @return array ['model' => ai_models row, 'api_key' => string] or ['error' => string]
+ */
+function ai_audioFeatureSetup($userId, $programId, $featureCode) {
+    $featureConfig = ai_getFeatureConfig($programId, $featureCode);
+    if (!$featureConfig) {
+        return ['error' => 'Feature not found: ' . $featureCode];
+    }
+    if (empty($featureConfig['default_model'])) {
+        return ['error' => "Feature '$featureCode' has no audio model configured."];
+    }
+    $model = ai_getModelByCodeAndProvider($featureConfig['default_model'], $featureConfig['default_provider'] ?? null);
     if (!$model) {
-        aiCentral_logMessage("Transcription $status before a model was chosen: $error", 'ERROR');
+        return ['error' => "Model '{$featureConfig['default_model']}' not found in database."];
+    }
+
+    $apiKey = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : '';
+    if (empty($apiKey)) {
+        return ['error' => 'OpenAI API key not configured'];
+    }
+
+    // Check quota (normal mode) or the program's budget (passthrough)
+    $programConfig = ai_getProgramConfig($programId);
+    if (!$programConfig || !$programConfig['passthrough_mode']) {
+        $quotaCheck = ai_checkQuota($userId, $programId);
+        if (!$quotaCheck['allowed']) {
+            return ['error' => $quotaCheck['message']];
+        }
+    } elseif ($budgetError = ai_checkProgramBudget($programConfig)) {
+        return ['error' => $budgetError];
+    }
+    return ['model' => $model, 'api_key' => $apiKey];
+}
+
+/**
+ * Log an audio request (transcription or speech) to ai_usage_log.
+ * Simplified version of AIProviderManager::logUsage; the cost goes in input_cost_usd.
+ * $model is the ai_models row used (null when the request failed before a model was chosen);
+ * $details goes to request_metadata (type, audio size, characters, ...).
+ */
+function ai_logAudioUsage($userId, $programId, $featureCode, $model, array $details, $cost, $responseTime, $status, $error) {
+    if (!$model) {
+        aiCentral_logMessage("Audio request $status before a model was chosen: $error", 'ERROR');
         return;
     }
     $conn = ai_getDBConnection();
@@ -787,7 +959,7 @@ function ai_logTranscriptionUsage($userId, $programId, $featureCode, $model, $au
         if ($stmt) {
             $providerId = $model['provider_id'] ?? null;
             $modelId = $model['model_id'] ?? null;
-            $metadata = json_encode(['audio_size_bytes' => $audioSize, 'type' => 'transcription']);
+            $metadata = json_encode($details);
             $stmt->bind_param('sssiidisss',
                 $userId, $programId, $featureCode,
                 $providerId, $modelId,
@@ -798,7 +970,7 @@ function ai_logTranscriptionUsage($userId, $programId, $featureCode, $model, $au
             $stmt->close();
         }
     } catch (Exception $e) {
-        aiCentral_logMessage("Failed to log transcription usage: " . $e->getMessage(), 'ERROR');
+        aiCentral_logMessage("Failed to log audio usage: " . $e->getMessage(), 'ERROR');
     }
 }
 

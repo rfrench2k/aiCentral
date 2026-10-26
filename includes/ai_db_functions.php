@@ -339,7 +339,7 @@ function ai_featureAllowsModel($featureId, $tierId, $modelId) {
 function ai_getFeatureTierRow($featureId, $tierId) {
     $conn = ai_getDBConnection();
     $result = aiCentral_executeQuery($conn,
-        "SELECT max_output_tokens, model_code, provider_code, effort_code, thinking_off
+        "SELECT max_output_tokens, model_code, provider_code, effort_code, thinking_off, speed_code
            FROM ai_feature_tier_config WHERE feature_id = ? AND tier_id = ?",
         [$featureId, $tierId], 'ii');
     $row = $result ? $result->fetch_assoc() : null;
@@ -348,8 +348,9 @@ function ai_getFeatureTierRow($featureId, $tierId) {
 
 /**
  * Apply a feature's tier settings to one request: max output tokens (unless the caller set it),
- * and effort and thinking checked against what the model supports (ai_model_effort_levels,
- * ai_models.thinking_off_mode). Sets $options['effort'] and $options['thinking_mode'] only when valid.
+ * and effort, thinking and speed checked against what the model supports (ai_model_effort_levels,
+ * ai_models.thinking_off_mode, ai_models.fast_price_multiplier). Sets $options['effort'],
+ * $options['thinking_mode'] and $options['speed'] only when valid.
  */
 function ai_applyTierSettings(array &$options, $tierRow, array $model) {
     if (!$tierRow) return;
@@ -380,6 +381,14 @@ function ai_applyTierSettings(array &$options, $tierRow, array $model) {
             aiCentral_logMessage("Thinking off ignored on {$model['model_code']}: not allowed at $effort effort", 'WARNING');
         } else {
             $options['thinking_mode'] = $mode;
+        }
+    }
+
+    if (($tierRow['speed_code'] ?? '') === 'fast') {
+        if ($model['fast_price_multiplier'] !== null && $model['fast_price_multiplier'] !== '') {
+            $options['speed'] = 'fast';
+        } else {
+            aiCentral_logMessage("Fast mode not available on {$model['model_code']}, running at standard speed", 'INFO');
         }
     }
 }

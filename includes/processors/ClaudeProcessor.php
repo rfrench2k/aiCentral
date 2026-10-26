@@ -65,9 +65,28 @@ class ClaudeProcessor implements BaseProcessor {
             $request['output_config']['format'] = ['type' => 'json_schema', 'schema' => $options['json_schema']];
         }
 
-        // System prompt (top-level field)
+        // System prompt (top-level field): a string, or a list of text blocks when parts of it
+        // are marked for prompt caching ([['type' => 'text', 'text' => ..., 'cache_control' => ...], ...])
         if (!empty($options['system'])) {
             $request['system'] = $options['system'];
+        }
+
+        // Prompt caching of the conversation so far (the API places the breakpoint itself);
+        // 'cache' => true for the 5-minute cache, '1h' for the 1-hour cache
+        if (!empty($options['cache'])) {
+            $request['cache_control'] = ['type' => 'ephemeral'];
+            if ($options['cache'] === '1h') {
+                $request['cache_control']['ttl'] = '1h';
+            }
+        }
+
+        // Fast mode (set per feature and tier; only on models that have it) and the
+        // model's server-side fallback when its safety classifiers decline a request
+        if (($options['speed'] ?? '') === 'fast') {
+            $request['speed'] = 'fast';
+        }
+        if (!empty($options['fallbacks'])) {
+            $request['fallbacks'] = $options['fallbacks'];
         }
 
         // Build messages array: earlier conversation turns first, then this turn
@@ -105,6 +124,22 @@ class ClaudeProcessor implements BaseProcessor {
             aiCentral_logMessage("ClaudeProcessor: Added " . count($options['documents']) . " documents", 'DEBUG');
         }
 
+        // Source passages the reply may quote, with citations on: each part of the reply that
+        // uses one comes back tied to the exact text it came from (see parseResponse 'segments')
+        if (!empty($options['sources']) && is_array($options['sources'])) {
+            foreach ($options['sources'] as $source) {
+                $block = [
+                    'type' => 'document',
+                    'source' => ['type' => 'text', 'media_type' => 'text/plain', 'data' => (string)$source['text']],
+                    'citations' => ['enabled' => true],
+                ];
+                if (!empty($source['title'])) {
+                    $block['title'] = (string)$source['title'];
+                }
+                $content[] = $block;
+            }
+        }
+
         // Add text prompt
         $content[] = [
             'type' => 'text',
@@ -127,11 +162,23 @@ class ClaudeProcessor implements BaseProcessor {
             }
         }
 
+        // The calling app's own tools (run by its tool_handler; see AIProviderManager::makeRequest).
+        // When streamed, inputs stream as they are written (validated before use). A caller that
+        // warms the prompt cache sets eager_input_streaming itself, so warm-up and messages match.
+        if (!empty($options['tools']) && is_array($options['tools'])) {
+            foreach ($options['tools'] as $tool) {
+                if (!empty($options['stream']) && !isset($tool['eager_input_streaming'])) {
+                    $tool['eager_input_streaming'] = true;
+                }
+                $request['tools'][] = $tool;
+            }
+        }
+
         // Claude doesn't support top-level metadata field
         // Metadata is handled internally for logging only
 
-        // Always disable streaming for now
-        $request['stream'] = false;
+        // Streamed when the caller takes the text as it arrives (options['on_text'])
+        $request['stream'] = !empty($options['stream']);
 
         aiCentral_logMessage("ClaudeProcessor: Request built successfully", 'DEBUG');
         return $request;
@@ -217,7 +264,33 @@ class ClaudeProcessor implements BaseProcessor {
             }
         }
 
+        // The reply as text segments, each with the source passages it cites (options['sources'])
+        $segments = [];
+        foreach ($apiResponse['content'] ?? [] as $block) {
+            if (($block['type'] ?? '') !== 'text') {
+                continue;
+            }
+            $cites = [];
+            foreach ($block['citations'] ?? [] as $c) {
+                if (isset($c['document_index'])) {
+                    $cites[] = [
+                        'source_index' => (int)$c['document_index'],
+                        'cited_text' => (string)($c['cited_text'] ?? ''),
+                        'start' => $c['start_char_index'] ?? null,
+                        'end' => $c['end_char_index'] ?? null,
+                    ];
+                }
+            }
+            $segments[] = ['text' => $block['text'], 'citations' => $cites];
+        }
+
         aiCentral_logMessage("ClaudeProcessor: Response parsed successfully", 'DEBUG');
+
+        // A request the model declined (stop_reason 'refusal'), even after any fallback model
+        if (($apiResponse['stop_reason'] ?? '') === 'refusal') {
+            aiCentral_logMessage("ClaudeProcessor: request declined (" . ($apiResponse['stop_details']['category'] ?? 'no category') . ")", 'WARNING');
+        }
+        $usage['speed'] = $apiResponse['usage']['speed'] ?? null;
 
         return [
             'success' => true,
@@ -225,6 +298,9 @@ class ClaudeProcessor implements BaseProcessor {
             'usage' => $usage,
             'tool_calls' => $toolCalls,
             'stop_reason' => $apiResponse['stop_reason'] ?? 'unknown',
+            'message_id' => $apiResponse['id'] ?? null,
+            'content' => $apiResponse['content'] ?? [],
+            'segments' => $segments,
             'raw_response_data' => $apiResponse
         ];
     }
@@ -298,5 +374,150 @@ class ClaudeProcessor implements BaseProcessor {
             'anthropic-version: 2023-06-01',
             'content-type: application/json'
         ];
+    }
+
+    /** Takes options['sources'] as citable documents (other processors get them as prompt text). */
+    public function supportsSources() {
+        return true;
+    }
+
+    /**
+     * Beta headers a built request needs (fast mode, server-side fallbacks).
+     *
+     * @param array $request Request body from buildRequest()
+     * @return array HTTP header lines (empty when none)
+     */
+    public function betaHeaders(array $request) {
+        $betas = [];
+        if (!empty($request['fallbacks'])) {
+            $betas[] = 'server-side-fallback-2026-07-01';
+        }
+        if (($request['speed'] ?? '') === 'fast') {
+            $betas[] = 'fast-mode-2026-02-01';
+        }
+        return $betas ? ['anthropic-beta: ' . implode(',', $betas)] : [];
+    }
+
+    /**
+     * The same request at standard speed: fast mode has its own, smaller rate limit,
+     * so a 429 in fast mode is retried this way.
+     *
+     * @return array|null The request without fast mode, or null when it wasn't fast
+     */
+    public function withoutFastMode(array $request) {
+        if (($request['speed'] ?? '') !== 'fast') {
+            return null;
+        }
+        unset($request['speed']);
+        return $request;
+    }
+
+    /**
+     * Streaming: start an empty message that streamEvent() fills in.
+     */
+    public function streamStart() {
+        return ['message' => ['id' => null, 'content' => [], 'stop_reason' => null, 'usage' => []], 'json' => [], 'error' => null];
+    }
+
+    /**
+     * Streaming: apply one server-sent event (its decoded "data" JSON) to the message
+     * being assembled, and pass reply text to $onText as it arrives.
+     */
+    public function streamEvent(array &$state, array $event, callable $onText) {
+        $msg = &$state['message'];
+        switch ($event['type'] ?? '') {
+            case 'message_start':
+                $msg = array_merge($msg, $event['message'] ?? []);
+                $msg['content'] = [];
+                break;
+            case 'content_block_start':
+                $msg['content'][$event['index']] = $event['content_block'];
+                if (($event['content_block']['type'] ?? '') === 'tool_use') {
+                    $state['json'][$event['index']] = '';
+                }
+                break;
+            case 'content_block_delta':
+                $i = $event['index'];
+                $delta = $event['delta'] ?? [];
+                switch ($delta['type'] ?? '') {
+                    case 'text_delta':
+                        $msg['content'][$i]['text'] = ($msg['content'][$i]['text'] ?? '') . $delta['text'];
+                        $onText($delta['text']);
+                        break;
+                    case 'thinking_delta':
+                        $msg['content'][$i]['thinking'] = ($msg['content'][$i]['thinking'] ?? '') . $delta['thinking'];
+                        break;
+                    case 'signature_delta':
+                        $msg['content'][$i]['signature'] = $delta['signature'];
+                        break;
+                    case 'input_json_delta':
+                        $state['json'][$i] = ($state['json'][$i] ?? '') . $delta['partial_json'];
+                        break;
+                    case 'citations_delta':
+                        $msg['content'][$i]['citations'][] = $delta['citation'];
+                        break;
+                }
+                break;
+            case 'content_block_stop':
+                $i = $event['index'];
+                if (isset($state['json'][$i])) {
+                    // Tool input streams unvalidated: a broken or partial JSON is kept as null for the loop to report
+                    $input = json_decode($state['json'][$i] === '' ? '{}' : $state['json'][$i], true);
+                    $msg['content'][$i]['input'] = is_array($input) ? $input : null;
+                }
+                break;
+            case 'message_delta':
+                $msg['stop_reason'] = $event['delta']['stop_reason'] ?? $msg['stop_reason'];
+                if (isset($event['delta']['stop_details'])) {
+                    $msg['stop_details'] = $event['delta']['stop_details'];
+                }
+                $msg['usage'] = array_merge($msg['usage'] ?? [], $event['usage'] ?? []);
+                break;
+            case 'error':
+                $state['error'] = $event['error'] ?? ['message' => 'stream error'];
+                break;
+        }
+    }
+
+    /**
+     * Streaming: the assembled message, in the same shape as a non-streamed response
+     * (so parseResponse() handles both). A stream error comes back as an error response.
+     *
+     * @return array ['data' => array, 'http_code' => int]
+     */
+    public function streamFinish(array $state) {
+        if ($state['error']) {
+            return ['data' => ['error' => $state['error']], 'http_code' => 500];
+        }
+        $msg = $state['message'];
+        ksort($msg['content']);
+        $msg['content'] = array_values($msg['content']);
+        return ['data' => $msg, 'http_code' => 200];
+    }
+
+    /**
+     * The assistant turn to send back after the app's tools ran. Blocks go back unchanged,
+     * except after a fallback (a decline part-way through): before the last fallback block
+     * only text is kept, and the fallback markers themselves are dropped.
+     */
+    public function assistantTurn(array $content) {
+        $lastFallback = null;
+        foreach ($content as $i => $block) {
+            if (($block['type'] ?? '') === 'fallback') {
+                $lastFallback = $i;
+            }
+        }
+        $out = [];
+        foreach ($content as $i => $block) {
+            $type = $block['type'] ?? '';
+            if ($type === 'fallback' || ($lastFallback !== null && $i < $lastFallback && $type !== 'text')) {
+                continue;
+            }
+            if ($type === 'tool_use') {
+                $block['input'] = is_array($block['input'] ?? null) ? (object)$block['input'] : new stdClass();
+            }
+            $out[] = $block;
+        }
+        return ['role' => 'assistant', 'content' => $out];
     }
 }
