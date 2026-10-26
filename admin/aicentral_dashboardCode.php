@@ -62,7 +62,7 @@ function getStats() {
     $conn = ai_getDBConnection();
 
     // Total requests last 30 days
-    $sql = "SELECT COUNT(*) as total, SUM(total_cost_usd) as cost
+    $sql = "SELECT COUNT(*) as total, " . aiCentral_costSplitSql() . "
             FROM ai_usage_log
             WHERE request_timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
             AND status = 'success'";
@@ -70,7 +70,7 @@ function getStats() {
     $current = $result->fetch_assoc();
 
     // Previous 30 days for comparison
-    $sql = "SELECT COUNT(*) as total, SUM(total_cost_usd) as cost
+    $sql = "SELECT COUNT(*) as total, " . aiCentral_costSplitSql() . "
             FROM ai_usage_log
             WHERE request_timestamp >= DATE_SUB(NOW(), INTERVAL 60 DAY)
             AND request_timestamp < DATE_SUB(NOW(), INTERVAL 30 DAY)
@@ -116,8 +116,12 @@ function getStats() {
                 'change' => calculatePercentChange($previous['total'], $current['total'])
             ],
             'totalCost' => [
-                'value' => (float)$current['cost'],
-                'change' => calculatePercentChange($previous['cost'], $current['cost'])
+                'value' => (float)$current['api_cost'],
+                'change' => calculatePercentChange($previous['api_cost'], $current['api_cost'])
+            ],
+            'cliCost' => [
+                'value' => (float)$current['cli_cost'],
+                'requests' => (int)$current['cli_requests']
             ],
             'activeUsers' => [
                 'value' => (int)$users['total'],
@@ -226,7 +230,7 @@ function getRecentRequests() {
 function getTopPrograms() {
     $conn = ai_getDBConnection();
 
-    $sql = "SELECT program_id, COUNT(*) as count, SUM(total_cost_usd) as cost
+    $sql = "SELECT program_id, COUNT(*) as count, " . aiCentral_costSplitSql() . "
             FROM ai_usage_log
             WHERE request_timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
             AND status = 'success'
@@ -241,7 +245,10 @@ function getTopPrograms() {
         $data[] = [
             'program' => $row['program_id'],
             'count' => (int)$row['count'],
-            'cost' => (float)$row['cost']
+            'apiCost' => (float)$row['api_cost'],
+            'cliCost' => (float)$row['cli_cost'],
+            'apiRequests' => (int)$row['api_requests'],
+            'cliRequests' => (int)$row['cli_requests']
         ];
     }
 

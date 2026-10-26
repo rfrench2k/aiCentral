@@ -220,6 +220,22 @@ function aiCentral_calculateRequestCost($modelCode, $inputTokens, $outputTokens,
 }
 
 /**
+ * SQL that splits ai_usage_log cost into real API spend and Claude CLI cost.
+ * CLI calls run on the claude.ai subscription, so their logged cost is not
+ * money spent; reports show it separately and keep it out of the totals.
+ * @param string $alias Table alias of ai_usage_log in the query ('' for none)
+ * @return string "SUM(...) as api_cost, SUM(...) as cli_cost, SUM(...) as api_requests, SUM(...) as cli_requests"
+ */
+function aiCentral_costSplitSql($alias = '') {
+    $a = $alias !== '' ? $alias . '.' : '';
+    $isCli = "{$a}provider_id IN (SELECT provider_id FROM ai_providers WHERE provider_code = 'claude_cli')";
+    return "SUM(CASE WHEN $isCli THEN 0 ELSE {$a}total_cost_usd END) as api_cost,
+            SUM(CASE WHEN $isCli THEN {$a}total_cost_usd ELSE 0 END) as cli_cost,
+            SUM(CASE WHEN $isCli THEN 0 ELSE 1 END) as api_requests,
+            SUM(CASE WHEN $isCli THEN 1 ELSE 0 END) as cli_requests";
+}
+
+/**
  * Get lookup values from admin_lookups table
  * @param string|null $lookupName Optional - filter by lookup name (e.g., 'feature_type')
  * @return array Array of lookup values

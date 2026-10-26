@@ -82,8 +82,17 @@ function aiCentral_renderSummary() {
         <div class="col-md-6 col-lg">
             <div class="card border-0 shadow-sm h-100">
                 <div class="card-body text-center">
-                    <div class="text-uppercase text-muted small fw-semibold mb-2">Total Cost</div>
+                    <div class="text-uppercase text-muted small fw-semibold mb-2">Total Cost (API)</div>
                     <div class="h2 fw-bold text-success mb-0">$${summary.total_cost.toFixed(2)}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6 col-lg">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body text-center">
+                    <div class="text-uppercase text-muted small fw-semibold mb-2">Claude CLI (not billed)</div>
+                    <div class="h2 fw-bold text-secondary mb-0">$${summary.cli_cost.toFixed(2)}</div>
+                    <small class="text-muted">${summary.cli_requests.toLocaleString()} requests</small>
                 </div>
             </div>
         </div>
@@ -155,8 +164,10 @@ function aiCentral_renderByProgram() {
     const data = aiCentral_costData.byProgram;
     aiCentral_renderTable('aicentral-cost-by-program', data, [
         { key: 'program_id', label: 'Program' },
-        { key: 'requests', label: 'Requests', format: 'number' },
-        { key: 'cost', label: 'Cost', format: 'currency' }
+        { key: 'api_requests', label: 'API Requests', format: 'number' },
+        { key: 'api_cost', label: 'API Cost', format: 'currency' },
+        { key: 'cli_requests', label: 'CLI Requests', format: 'number' },
+        { key: 'cli_cost', label: 'CLI Cost', format: 'currency' }
     ]);
 }
 

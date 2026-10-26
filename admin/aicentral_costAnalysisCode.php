@@ -57,7 +57,7 @@ function getCostData() {
                 COUNT(*) as total_requests,
                 SUM(input_tokens) as total_input_tokens,
                 SUM(output_tokens) as total_output_tokens,
-                SUM(total_cost_usd) as total_cost
+                " . aiCentral_costSplitSql() . "
             FROM ai_usage_log
             WHERE DATE(request_timestamp) BETWEEN ? AND ?";
 
@@ -121,11 +121,11 @@ function getCostData() {
                 COUNT(*) as requests,
                 SUM(input_tokens) as input_tokens,
                 SUM(output_tokens) as output_tokens,
-                SUM(total_cost_usd) as cost
+                " . aiCentral_costSplitSql() . "
             FROM ai_usage_log
             WHERE DATE(request_timestamp) BETWEEN ? AND ?
             GROUP BY program_id
-            ORDER BY cost DESC";
+            ORDER BY api_cost DESC, cli_cost DESC";
 
     $stmt = $conn->prepare($sql);
     $stmt->bind_param('ss', $startDate, $endDate);
@@ -209,8 +209,10 @@ function getCostData() {
             'total_requests' => (int)$summary['total_requests'],
             'total_input_tokens' => (int)$summary['total_input_tokens'],
             'total_output_tokens' => (int)$summary['total_output_tokens'],
-            'total_cost' => (float)$summary['total_cost'],
-            'avg_cost_per_request' => $summary['total_requests'] > 0 ? (float)$summary['total_cost'] / (int)$summary['total_requests'] : 0
+            'total_cost' => (float)$summary['api_cost'],
+            'cli_cost' => (float)$summary['cli_cost'],
+            'cli_requests' => (int)$summary['cli_requests'],
+            'avg_cost_per_request' => $summary['api_requests'] > 0 ? (float)$summary['api_cost'] / (int)$summary['api_requests'] : 0
         ],
         'byProvider' => $byProvider,
         'byModel' => $byModel,

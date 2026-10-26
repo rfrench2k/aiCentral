@@ -279,6 +279,6 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/ai/common/header_ai.php';
     </div>
 </div>
 
-<script src="/ai/admin/aicentral_costAnalysis.js"></script>
+<script src="/ai/admin/aicentral_costAnalysis.js?v=<?= @filemtime(__DIR__ . '/aicentral_costAnalysis.js') ?>"></script>
 
 <?php require_once $_SERVER['DOCUMENT_ROOT'] . '/ai/common/footer.html'; ?>

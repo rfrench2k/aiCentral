@@ -22,7 +22,7 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/ai/common/header_ai.php';
 
 <!-- Stats Cards -->
 <div class="row g-4 mb-4">
-    <div class="col-md-3">
+    <div class="col-md">
         <div class="card border-0 shadow-sm">
             <div class="card-body">
                 <div class="d-flex align-items-center">
@@ -41,7 +41,7 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/ai/common/header_ai.php';
         </div>
     </div>
 
-    <div class="col-md-3">
+    <div class="col-md">
         <div class="card border-0 shadow-sm">
             <div class="card-body">
                 <div class="d-flex align-items-center">
@@ -60,7 +60,26 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/ai/common/header_ai.php';
         </div>
     </div>
 
-    <div class="col-md-3">
+    <div class="col-md">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0">
+                        <div class="bg-secondary text-white rounded-3 p-3">
+                            <i class="bi bi-terminal-fill fs-4"></i>
+                        </div>
+                    </div>
+                    <div class="flex-grow-1 ms-3">
+                        <h6 class="text-muted small mb-1">Claude CLI Cost (30d)</h6>
+                        <h3 class="mb-0" id="aicentral-stat-cli-cost">---</h3>
+                        <small id="aicentral-stat-cli-requests" class="text-muted">Loading...</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md">
         <div class="card border-0 shadow-sm">
             <div class="card-body">
                 <div class="d-flex align-items-center">
@@ -79,7 +98,7 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/ai/common/header_ai.php';
         </div>
     </div>
 
-    <div class="col-md-3">
+    <div class="col-md">
         <div class="card border-0 shadow-sm">
             <div class="card-body">
                 <div class="d-flex align-items-center">
@@ -196,6 +215,6 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/ai/common/header_ai.php';
     </div>
 </div>
 
-<script src="/ai/admin/aicentral_dashboard.js"></script>
+<script src="/ai/admin/aicentral_dashboard.js?v=<?= @filemtime(__DIR__ . '/aicentral_dashboard.js') ?>"></script>
 
 <?php require_once $_SERVER['DOCUMENT_ROOT'] . '/ai/common/footer.html'; ?>

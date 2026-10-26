@@ -448,17 +448,18 @@ function ai_makeRequestPassthrough($params, $featureConfig, $programConfig) {
 
 /**
  * Dollars spent through AI Central this calendar month: by a program, or by one user in it.
+ * API spend only; Claude CLI calls run on the subscription and don't count.
  */
 function ai_monthSpend($programId, $userId = null) {
     $conn = ai_getDBConnection();
-    $sql = "SELECT COALESCE(SUM(total_cost_usd), 0) AS spent FROM ai_usage_log
+    $sql = "SELECT " . aiCentral_costSplitSql() . " FROM ai_usage_log
             WHERE program_id = ? AND request_timestamp >= DATE_FORMAT(CURDATE(), '%Y-%m-01')";
     if ($userId === null) {
         $result = aiCentral_executeQuery($conn, $sql, [$programId], 's');
     } else {
         $result = aiCentral_executeQuery($conn, $sql . " AND user_id = ?", [$programId, $userId], 'ss');
     }
-    return $result ? (float)$result->fetch_assoc()['spent'] : 0.0;
+    return $result ? (float)$result->fetch_assoc()['api_cost'] : 0.0;
 }
 
 /**

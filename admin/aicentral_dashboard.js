@@ -68,6 +68,11 @@ async function aiCentral_loadStats() {
                 aiCentral_formatChange(stats.totalCost.change);
             document.getElementById('aicentral-stat-cost-change').className =
                 'small ' + aiCentral_getChangeClass(stats.totalCost.change);
+            // Claude CLI (subscription, not billed)
+            document.getElementById('aicentral-stat-cli-cost').textContent =
+                '$' + stats.cliCost.value.toFixed(2);
+            document.getElementById('aicentral-stat-cli-requests').textContent =
+                aiCentral_formatNumber(stats.cliCost.requests) + ' requests, not billed';
 
             // Active Users
             document.getElementById('aicentral-stat-active-users').textContent =
@@ -270,8 +275,9 @@ async function aiCentral_loadTopPrograms() {
                                 style="width: ${(prog.count / maxCount) * 100}%"
                                 aria-valuenow="${prog.count}" aria-valuemin="0" aria-valuemax="${maxCount}"></div>
                         </div>
-                        <div class="text-end mt-1">
-                            <small class="text-muted">$${prog.cost.toFixed(2)}</small>
+                        <div class="d-flex justify-content-between mt-1">
+                            <small class="text-muted">API: $${prog.apiCost.toFixed(2)} (${aiCentral_formatNumber(prog.apiRequests)})</small>
+                            <small class="text-muted">CLI: $${prog.cliCost.toFixed(2)} (${aiCentral_formatNumber(prog.cliRequests)})</small>
                         </div>
                     </div>
                 `).join('');
