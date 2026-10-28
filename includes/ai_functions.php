@@ -449,16 +449,26 @@ function ai_makeRequestPassthrough($params, $featureConfig, $programConfig) {
 /**
  * Dollars spent through AI Central this calendar month: by a program, or by one user in it.
  * API spend only; Claude CLI calls run on the subscription and don't count.
+ * $featureCodes (optional): only these features of the program, e.g. its voice features.
  */
-function ai_monthSpend($programId, $userId = null) {
+function ai_monthSpend($programId, $userId = null, $featureCodes = null) {
     $conn = ai_getDBConnection();
     $sql = "SELECT " . aiCentral_costSplitSql() . " FROM ai_usage_log
             WHERE program_id = ? AND request_timestamp >= DATE_FORMAT(CURDATE(), '%Y-%m-01')";
-    if ($userId === null) {
-        $result = aiCentral_executeQuery($conn, $sql, [$programId], 's');
-    } else {
-        $result = aiCentral_executeQuery($conn, $sql . " AND user_id = ?", [$programId, $userId], 'ss');
+    $params = [$programId];
+    $types = 's';
+    if ($userId !== null) {
+        $sql .= " AND user_id = ?";
+        $params[] = $userId;
+        $types .= 's';
     }
+    $featureCodes = array_values(array_filter((array)$featureCodes, 'strlen'));
+    if ($featureCodes) {
+        $sql .= " AND feature_code IN (" . implode(',', array_fill(0, count($featureCodes), '?')) . ")";
+        $params = array_merge($params, $featureCodes);
+        $types .= str_repeat('s', count($featureCodes));
+    }
+    $result = aiCentral_executeQuery($conn, $sql, $params, $types);
     return $result ? (float)$result->fetch_assoc()['api_cost'] : 0.0;
 }
 
@@ -936,14 +946,16 @@ function ai_audioFeatureSetup($userId, $programId, $featureCode) {
  * Simplified version of AIProviderManager::logUsage; the cost goes in input_cost_usd.
  * $model is the ai_models row used (null when the request failed before a model was chosen);
  * $details goes to request_metadata (type, audio size, characters, ...).
+ * @return int|null The new usage_id, or null when nothing was logged
  */
 function ai_logAudioUsage($userId, $programId, $featureCode, $model, array $details, $cost, $responseTime, $status, $error) {
     if (!$model) {
         aiCentral_logMessage("Audio request $status before a model was chosen: $error", 'ERROR');
-        return;
+        return null;
     }
     $conn = ai_getDBConnection();
-    if (!$conn) return;
+    if (!$conn) return null;
+    $usageId = null;
 
     try {
         $sql = "INSERT INTO ai_usage_log (
@@ -968,11 +980,294 @@ function ai_logAudioUsage($userId, $programId, $featureCode, $model, array $deta
                 $responseTime, $status, $error, $metadata
             );
             $stmt->execute();
+            $usageId = $stmt->insert_id ?: null;
             $stmt->close();
         }
     } catch (Exception $e) {
         aiCentral_logMessage("Failed to log audio usage: " . $e->getMessage(), 'ERROR');
     }
+    return $usageId;
+}
+
+/* ---------- Live (realtime) voice calls ----------
+ *
+ * How a caller uses them (the page never sees the OpenAI key):
+ *   1. Server: $s = ai_makeRealtimeSession(['user_id' => ..., 'program_id' => ..., 'feature_code' => <a feature whose
+ *      default_model is a realtime model>, 'instructions' => ..., 'voice' => ..., 'tools' => [...], ...]);
+ *      Hand the page $s['key'], $s['url'], $s['model'], $s['prices'], $s['transcribe_per_min'], $s['max_minutes'],
+ *      $s['usage_id'] (never anything else from AI Central).
+ *   2. Page: connect over WebRTC to $s['url'] with the key (Authorization: Bearer <key>) within $s['expires_at'];
+ *      add up the token counts from each response.done event (usage.input_token_details / output_token_details)
+ *      per price part (audio_in, audio_cached, audio_out, text_in, text_cached, text_out) and the person's
+ *      speaking seconds; the prices are for a running cost display only.
+ *   3. Server, every so often and at the end: ai_reportRealtimeUsage(['user_id' => ..., 'program_id' => ...,
+ *      'usage_id' => ..., 'counts' => [...], 'speech_seconds' => ..., 'call_seconds' => ...]).
+ *      AI Central works out the cost itself from its own prices; it lands in ai_usage_log, so quotas,
+ *      budgets and ai_monthSpend count it.
+ */
+
+/**
+ * The prices of a model that is billed in several parts (realtime: audio in, cached audio in, audio out, text ...).
+ * @return array [part_code => ['price' => USD per 1M tokens, 'is_output' => bool, 'is_cached' => bool]]
+ */
+function ai_getModelPriceParts($modelId) {
+    $conn = ai_getDBConnection();
+    $result = aiCentral_executeQuery($conn,
+        "SELECT pp.part_code, pp.price_per_million, pp.is_output, pp.is_cached
+           FROM ai_model_price_part pp
+           LEFT JOIN admin_lookups l ON l.LOOKUP_NAME = 'ai_price_part' AND l.LOOKUP_VALUE = pp.part_code
+          WHERE pp.model_id = ?
+          ORDER BY l.LOOKUP_ORDER, pp.part_code", [$modelId], 'i');
+    $parts = [];
+    while ($result && ($row = $result->fetch_assoc())) {
+        $parts[$row['part_code']] = ['price' => (float)$row['price_per_million'], 'is_output' => (bool)$row['is_output'], 'is_cached' => (bool)$row['is_cached']];
+    }
+    return $parts;
+}
+
+/**
+ * Start a live voice call: mints a short-lived OpenAI realtime key with the session the caller describes,
+ * after the feature's quota/budget check, and opens its ai_usage_log row (cost 0 until the page reports).
+ *
+ * @param array $params Required: user_id, program_id, feature_code (its default_model is the realtime model)
+ *   Optional: instructions (string), voice, tools (realtime function tools), tool_choice,
+ *             turn_detection (array, e.g. ['type' => 'semantic_vad', 'eagerness' => 'low']),
+ *             noise_reduction ('near_field' | 'far_field' or an array), output_modalities (default ['audio']),
+ *             transcription_feature (a feature of the program whose default_model transcribes what the person says)
+ *               or transcription_model (a model code); transcription_language (default 'en'; null = detect),
+ *             truncation (array), key_seconds (life of the key, default AI_REALTIME_KEY_SECONDS),
+ *             max_minutes (longest call, at most AI_REALTIME_MAX_MINUTES), metadata (kept with the usage row)
+ * @return array ['success' => true, 'key', 'expires_at', 'url', 'model', 'prices' => [part_code => USD per 1M],
+ *                'transcribe_per_min', 'max_minutes', 'usage_id'] or ['success' => false, 'error' => string]
+ */
+function ai_makeRealtimeSession($params) {
+    if (!isset($params['user_id']) || !isset($params['program_id']) || !isset($params['feature_code'])) {
+        return ['success' => false, 'error' => 'Missing required parameters (user_id, program_id, feature_code)'];
+    }
+    $userId = $params['user_id'];
+    $programId = $params['program_id'];
+    $featureCode = $params['feature_code'];
+    $model = null;
+    $details = ['type' => 'realtime'];
+
+    aiCentral_logMessage("Realtime session request from user: $userId, program: $programId, feature: $featureCode", 'INFO');
+    $startTime = microtime(true);
+
+    try {
+        $setup = ai_audioFeatureSetup($userId, $programId, $featureCode);
+        if (!empty($setup['error'])) {
+            return ['success' => false, 'error' => $setup['error']];
+        }
+        $model = $setup['model'];
+        $parts = ai_getModelPriceParts($model['model_id']);
+        if (!$parts) {
+            return ['success' => false, 'error' => "Model '{$model['model_code']}' has no prices in ai_model_price_part."];
+        }
+
+        // What transcribes the person's words (optional): a feature's model, or a model code
+        $transcribe = null;
+        if (!empty($params['transcription_feature'])) {
+            $tf = ai_getFeatureConfig($programId, $params['transcription_feature']);
+            if (!$tf || empty($tf['default_model'])) {
+                return ['success' => false, 'error' => 'Transcription feature not found or has no model: ' . $params['transcription_feature']];
+            }
+            $transcribe = ai_getModelByCodeAndProvider($tf['default_model'], $tf['default_provider'] ?? null);
+        } elseif (!empty($params['transcription_model'])) {
+            $transcribe = ai_getModelByCodeAndProvider($params['transcription_model'], 'openai');
+        }
+        if ((!empty($params['transcription_feature']) || !empty($params['transcription_model'])) && !$transcribe) {
+            return ['success' => false, 'error' => 'Transcription model not found in database.'];
+        }
+
+        $keySeconds = (int)($params['key_seconds'] ?? AI_REALTIME_KEY_SECONDS);
+        $keySeconds = max(10, min(7200, $keySeconds));
+        $maxMinutes = (int)($params['max_minutes'] ?? AI_REALTIME_MAX_MINUTES);
+        $maxMinutes = max(1, min(AI_REALTIME_MAX_MINUTES, $maxMinutes));
+
+        $session = ['type' => 'realtime', 'model' => $model['model_code'], 'output_modalities' => $params['output_modalities'] ?? ['audio']];
+        if (!empty($params['instructions'])) $session['instructions'] = (string)$params['instructions'];
+        $audioIn = [];
+        if ($transcribe) {
+            $language = array_key_exists('transcription_language', $params) ? $params['transcription_language'] : 'en';
+            $audioIn['transcription'] = ['model' => $transcribe['model_code']];
+            if ($language) $audioIn['transcription']['language'] = $language;
+        }
+        if (!empty($params['turn_detection'])) $audioIn['turn_detection'] = $params['turn_detection'];
+        if (!empty($params['noise_reduction'])) {
+            $audioIn['noise_reduction'] = is_array($params['noise_reduction']) ? $params['noise_reduction'] : ['type' => $params['noise_reduction']];
+        }
+        if ($audioIn) $session['audio']['input'] = $audioIn;
+        if (!empty($params['voice'])) $session['audio']['output'] = ['voice' => $params['voice']];
+        if (!empty($params['tools'])) $session['tools'] = array_values($params['tools']);
+        if (!empty($params['tool_choice'])) $session['tool_choice'] = $params['tool_choice'];
+        if (!empty($params['truncation'])) $session['truncation'] = $params['truncation'];
+
+        $body = ['expires_after' => ['anchor' => 'created_at', 'seconds' => $keySeconds], 'session' => $session];
+
+        $curl = curl_init();
+        curl_setopt_array($curl, [
+            CURLOPT_URL => 'https://api.openai.com/v1/realtime/client_secrets',
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE),
+            CURLOPT_HTTPHEADER => [
+                'Authorization: Bearer ' . $setup['api_key'],
+                'Content-Type: application/json'
+            ]
+        ]);
+        $response = curl_exec($curl);
+        $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($curl);
+        curl_close($curl);
+        $responseTime = (int)((microtime(true) - $startTime) * 1000);
+
+        $result = $curlError ? null : json_decode((string)$response, true);
+        if ($curlError || $httpCode !== 200 || empty($result['value'])) {
+            $errorMsg = $curlError ? "cURL error: $curlError" : "API error ($httpCode): " . ($result['error']['message'] ?? 'no key in the answer');
+            aiCentral_logMessage("Realtime session {$model['model_code']}: $errorMsg", 'ERROR');
+            ai_logAudioUsage($userId, $programId, $featureCode, $model, $details, 0, $responseTime, 'failed', $errorMsg);
+            return ['success' => false, 'error' => 'Live voice is unavailable right now.'];
+        }
+
+        $transcribePerMin = $transcribe ? (float)$transcribe['input_cost_per_million'] / 1000 : 0.0;
+        $details = array_merge((array)($params['metadata'] ?? []), [
+            'type' => 'realtime',
+            'transcription_model_id' => $transcribe ? (int)$transcribe['model_id'] : null,
+            'max_minutes' => $maxMinutes,
+            'counts' => array_fill_keys(array_keys($parts), 0),
+            'speech_seconds' => 0,
+            'call_seconds' => 0
+        ]);
+        // The call's own row; ai_reportRealtimeUsage fills in its cost
+        $usageId = ai_logAudioUsage($userId, $programId, $featureCode, $model, $details, 0, 0, 'success', null);
+        if (!$usageId) {
+            return ['success' => false, 'error' => 'Could not open the usage record for the call.'];
+        }
+
+        return [
+            'success' => true,
+            'key' => $result['value'],
+            'expires_at' => $result['expires_at'] ?? null,
+            'url' => AI_REALTIME_URL,
+            'model' => $model['model_code'],
+            'prices' => array_map(fn($p) => $p['price'], $parts),
+            'transcribe_per_min' => $transcribePerMin,
+            'max_minutes' => $maxMinutes,
+            'usage_id' => $usageId,
+            'error' => null
+        ];
+    } catch (Exception $e) {
+        $responseTime = (int)((microtime(true) - $startTime) * 1000);
+        aiCentral_logMessage("Realtime session exception: " . $e->getMessage(), 'ERROR');
+        ai_logAudioUsage($userId, $programId, $featureCode, $model, $details, 0, $responseTime, 'failed', $e->getMessage());
+        return ['success' => false, 'error' => $e->getMessage()];
+    }
+}
+
+/**
+ * A live call's totals so far (during the call and at its end), as the page counts them. AI Central works out the
+ * cost from its own prices (any cost the page sends is ignored); counts and seconds only ever go up; one call's
+ * cost is capped at AI_REALTIME_SESSION_COST_MAX and its speaking time at its max minutes.
+ *
+ * @param array $params Required: user_id, program_id, usage_id (from ai_makeRealtimeSession)
+ *   Optional: counts ([part_code => tokens], e.g. audio_in, audio_cached, audio_out, text_in, text_cached, text_out),
+ *             speech_seconds (the person's speaking time, for the transcription), call_seconds (length of the call)
+ * @return array ['success' => true, 'cost' => ['input_cost', 'output_cost', 'total_cost'], 'capped' => bool]
+ *               or ['success' => false, 'error' => string]
+ */
+function ai_reportRealtimeUsage($params) {
+    if (!isset($params['user_id']) || !isset($params['program_id']) || empty($params['usage_id'])) {
+        return ['success' => false, 'error' => 'Missing required parameters (user_id, program_id, usage_id)'];
+    }
+    $userId = $params['user_id'];
+    $programId = $params['program_id'];
+    $usageId = (int)$params['usage_id'];
+    $conn = ai_getDBConnection();
+
+    $result = aiCentral_executeQuery($conn,
+        "SELECT usage_id, model_id, input_cost_usd, output_cost_usd, request_metadata FROM ai_usage_log
+          WHERE usage_id = ? AND user_id = ? AND program_id = ? AND status = 'success'", [$usageId, $userId, $programId], 'iss');
+    $row = $result ? $result->fetch_assoc() : null;
+    $meta = $row ? json_decode((string)$row['request_metadata'], true) : null;
+    if (!$row || ($meta['type'] ?? '') !== 'realtime') {
+        return ['success' => false, 'error' => 'Live call not found'];
+    }
+
+    $parts = ai_getModelPriceParts($row['model_id']);
+    $maxSeconds = (int)($meta['max_minutes'] ?? AI_REALTIME_MAX_MINUTES) * 60;
+    $sent = (array)($params['counts'] ?? []);
+
+    // Counts and seconds only ever go up
+    $counts = [];
+    $inputTokens = 0;
+    $outputTokens = 0;
+    $cachedTokens = 0;
+    $inputCost = 0.0;
+    $outputCost = 0.0;
+    foreach ($parts as $code => $p) {
+        $n = max((int)($meta['counts'][$code] ?? 0), max(0, min(200000000, (int)($sent[$code] ?? 0))));   // keeps the token sums inside an INT
+        $counts[$code] = $n;
+        $cost = $n * $p['price'] / 1000000;
+        if ($p['is_output']) {
+            $outputTokens += $n;
+            $outputCost += $cost;
+        } else {
+            $inputTokens += $n;
+            $inputCost += $cost;
+            if ($p['is_cached']) $cachedTokens += $n;
+        }
+    }
+    $speechSeconds = max((float)($meta['speech_seconds'] ?? 0), min($maxSeconds, max(0, (float)($params['speech_seconds'] ?? 0))));
+    $callSeconds = max((int)($meta['call_seconds'] ?? 0), min($maxSeconds, max(0, (int)($params['call_seconds'] ?? 0))));
+
+    // Transcription of what the person said, at the transcription model's price per minute
+    if (!empty($meta['transcription_model_id'])) {
+        $tr = aiCentral_executeQuery($conn, "SELECT input_cost_per_million FROM ai_models WHERE model_id = ?", [(int)$meta['transcription_model_id']], 'i');
+        $trRow = $tr ? $tr->fetch_assoc() : null;
+        if ($trRow) $inputCost += ($speechSeconds / 60) * (float)$trRow['input_cost_per_million'] / 1000;
+    }
+
+    // Never above the cap for one call, never below what was already kept
+    $capped = false;
+    $total = $inputCost + $outputCost;
+    if ($total > AI_REALTIME_SESSION_COST_MAX) {
+        $scale = AI_REALTIME_SESSION_COST_MAX / $total;
+        $inputCost *= $scale;
+        $outputCost *= $scale;
+        $capped = true;
+        aiCentral_logMessage("Realtime call $usageId reported \$" . round($total, 4) . "; kept at the cap \$" . AI_REALTIME_SESSION_COST_MAX, 'WARNING');
+    }
+    $inputCost = round($inputCost, 6);
+    $outputCost = round($outputCost, 6);
+    if ($inputCost + $outputCost < (float)$row['input_cost_usd'] + (float)$row['output_cost_usd']) {
+        $inputCost = (float)$row['input_cost_usd'];
+        $outputCost = (float)$row['output_cost_usd'];
+    }
+
+    $meta['counts'] = $counts;
+    $meta['speech_seconds'] = round($speechSeconds, 1);
+    $meta['call_seconds'] = $callSeconds;
+    if ($capped) $meta['capped'] = true;
+    $metadata = json_encode($meta);
+    $responseTime = $callSeconds * 1000;
+
+    $stmt = $conn->prepare("UPDATE ai_usage_log SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?,
+                                   input_cost_usd = ?, output_cost_usd = ?, response_time_ms = ?, request_metadata = ?
+                             WHERE usage_id = ?");
+    if (!$stmt) {
+        return ['success' => false, 'error' => 'Could not save the call usage'];
+    }
+    $stmt->bind_param('iiiddisi', $inputTokens, $outputTokens, $cachedTokens, $inputCost, $outputCost, $responseTime, $metadata, $usageId);
+    $ok = $stmt->execute();
+    $stmt->close();
+    if (!$ok) {
+        return ['success' => false, 'error' => 'Could not save the call usage'];
+    }
+
+    $totalCost = round($inputCost + $outputCost, 6);
+    return ['success' => true, 'cost' => ['input_cost' => $inputCost, 'output_cost' => $outputCost, 'total_cost' => $totalCost], 'capped' => $capped, 'error' => null];
 }
 
 

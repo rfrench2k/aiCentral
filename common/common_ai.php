@@ -236,6 +236,25 @@ function aiCentral_costSplitSql($alias = '') {
 }
 
 /**
+ * "Paid only" (the switch on the dashboard and Usage Analysis, sent as paid_only=1): leave out requests that cost
+ * nothing (local models such as Ollama). Requests: SQL " AND <alias>.total_cost_usd > 0", or '' when the switch is off.
+ * @param string $alias Table alias of ai_usage_log in the query ('' for none)
+ */
+function aiCentral_paidOnlySql($alias = '') {
+    $a = $alias !== '' ? $alias . '.' : '';
+    return (($_REQUEST['paid_only'] ?? '') === '1') ? " AND {$a}total_cost_usd > 0" : '';
+}
+
+/**
+ * "Paid only" for a list of providers (alias of ai_providers): leave out providers whose models are all free.
+ */
+function aiCentral_paidProvidersSql($alias = 'p') {
+    return (($_REQUEST['paid_only'] ?? '') === '1')
+        ? " AND EXISTS (SELECT 1 FROM ai_models pm WHERE pm.provider_id = {$alias}.provider_id AND (pm.input_cost_per_million > 0 OR pm.output_cost_per_million > 0))"
+        : '';
+}
+
+/**
  * Get lookup values from admin_lookups table
  * @param string|null $lookupName Optional - filter by lookup name (e.g., 'feature_type')
  * @return array Array of lookup values

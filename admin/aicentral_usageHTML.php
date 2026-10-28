@@ -111,6 +111,10 @@ if ($conn) {
                 <button class="btn btn-sm btn-outline-info" onclick="aiUsage_toggleAdvancedFilters()" id="btn-toggle-filters">
                     <i class="bi bi-chevron-down"></i> More Filters
                 </button>
+                <div class="form-check form-switch mb-0 ms-2 align-self-center" title="Leave out requests that cost nothing (local models such as Ollama)">
+            <input class="form-check-input" type="checkbox" role="switch" id="filter-paid-only">
+            <label class="form-check-label small fw-bold" for="filter-paid-only">Paid only</label>
+        </div>
             </div>
         </div>
 

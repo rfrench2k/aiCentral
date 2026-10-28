@@ -65,7 +65,7 @@ function getStats() {
     $sql = "SELECT COUNT(*) as total, " . aiCentral_costSplitSql() . "
             FROM ai_usage_log
             WHERE request_timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-            AND status = 'success'";
+            AND status = 'success'" . aiCentral_paidOnlySql() . "";
     $result = $conn->query($sql);
     $current = $result->fetch_assoc();
 
@@ -74,21 +74,21 @@ function getStats() {
             FROM ai_usage_log
             WHERE request_timestamp >= DATE_SUB(NOW(), INTERVAL 60 DAY)
             AND request_timestamp < DATE_SUB(NOW(), INTERVAL 30 DAY)
-            AND status = 'success'";
+            AND status = 'success'" . aiCentral_paidOnlySql() . "";
     $result = $conn->query($sql);
     $previous = $result->fetch_assoc();
 
     // Active users
     $sql = "SELECT COUNT(DISTINCT user_id) as total
             FROM ai_usage_log
-            WHERE request_timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
+            WHERE request_timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)" . aiCentral_paidOnlySql() . "";
     $result = $conn->query($sql);
     $users = $result->fetch_assoc();
 
     $sql = "SELECT COUNT(DISTINCT user_id) as total
             FROM ai_usage_log
             WHERE request_timestamp >= DATE_SUB(NOW(), INTERVAL 60 DAY)
-            AND request_timestamp < DATE_SUB(NOW(), INTERVAL 30 DAY)";
+            AND request_timestamp < DATE_SUB(NOW(), INTERVAL 30 DAY)" . aiCentral_paidOnlySql() . "";
     $result = $conn->query($sql);
     $usersPrevious = $result->fetch_assoc();
 
@@ -96,7 +96,7 @@ function getStats() {
     $sql = "SELECT AVG(response_time_ms) as avg_time
             FROM ai_usage_log
             WHERE request_timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-            AND status = 'success'";
+            AND status = 'success'" . aiCentral_paidOnlySql() . "";
     $result = $conn->query($sql);
     $avgTime = $result->fetch_assoc();
 
@@ -104,7 +104,7 @@ function getStats() {
             FROM ai_usage_log
             WHERE request_timestamp >= DATE_SUB(NOW(), INTERVAL 60 DAY)
             AND request_timestamp < DATE_SUB(NOW(), INTERVAL 30 DAY)
-            AND status = 'success'";
+            AND status = 'success'" . aiCentral_paidOnlySql() . "";
     $result = $conn->query($sql);
     $avgTimePrevious = $result->fetch_assoc();
 
@@ -144,7 +144,7 @@ function getRequestsChart() {
     $sql = "SELECT DATE(request_timestamp) as date, COUNT(*) as count
             FROM ai_usage_log
             WHERE request_timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-            AND status = 'success'
+            AND status = 'success'" . aiCentral_paidOnlySql() . "
             GROUP BY DATE(request_timestamp)
             ORDER BY date ASC";
 
@@ -171,7 +171,7 @@ function getProvidersChart() {
             FROM ai_usage_log ul
             JOIN ai_providers p ON ul.provider_id = p.provider_id
             WHERE ul.request_timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-            AND ul.status = 'success'
+            AND ul.status = 'success'" . aiCentral_paidOnlySql('ul') . "
             GROUP BY p.provider_id
             ORDER BY cost DESC";
 
@@ -201,6 +201,7 @@ function getRecentRequests() {
             FROM ai_usage_log ul
             JOIN ai_providers p ON ul.provider_id = p.provider_id
             JOIN ai_models m ON ul.model_id = m.model_id
+            WHERE 1=1" . aiCentral_paidOnlySql('ul') . "
             ORDER BY ul.request_timestamp DESC
             LIMIT 20";
 
@@ -233,7 +234,7 @@ function getTopPrograms() {
     $sql = "SELECT program_id, COUNT(*) as count, " . aiCentral_costSplitSql() . "
             FROM ai_usage_log
             WHERE request_timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-            AND status = 'success'
+            AND status = 'success'" . aiCentral_paidOnlySql() . "
             GROUP BY program_id
             ORDER BY count DESC
             LIMIT 10";
@@ -265,7 +266,8 @@ function getProviderStatus() {
                    COUNT(ul.usage_id) as requests_today,
                    SUM(ul.total_cost_usd) as cost_today
             FROM ai_providers p
-            LEFT JOIN ai_usage_log ul ON p.provider_id = ul.provider_id AND DATE(ul.request_timestamp) = CURDATE()
+            LEFT JOIN ai_usage_log ul ON p.provider_id = ul.provider_id AND DATE(ul.request_timestamp) = CURDATE()" . aiCentral_paidOnlySql('ul') . "
+            WHERE 1=1" . aiCentral_paidProvidersSql('p') . "
             GROUP BY p.provider_id
             ORDER BY p.provider_name";
 

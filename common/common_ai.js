@@ -250,3 +250,16 @@ function showAlert(message, title = 'Alert', type = 'info') {
     };
     document.addEventListener('keydown', handleKeyPress);
 }
+
+/**
+ * "Paid only" (dashboard, Usage Analysis): leave out requests that cost nothing (local models such as Ollama).
+ * aiCentral_paidOnly() reads it (on unless turned off), aiCentral_paidOnly(true|false) sets it; remembered in this browser.
+ */
+function aiCentral_paidOnly(value) {
+    try {
+        if (value !== undefined) localStorage.setItem('aiCentral_paidOnly', value ? '1' : '0');
+        return localStorage.getItem('aiCentral_paidOnly') !== '0';
+    } catch (e) {
+        return value !== undefined ? !!value : true;
+    }
+}

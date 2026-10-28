@@ -713,6 +713,11 @@ function buildWhereClause() {
         }
     }
 
+    // Paid only: requests that cost nothing (local models) left out
+    if (aiCentral_paidOnlySql('ul') !== '') {
+        $conditions[] = "ul.total_cost_usd > 0";
+    }
+
     $whereClause = '';
     if (!empty($conditions)) {
         $whereClause = 'WHERE ' . implode(' AND ', $conditions);

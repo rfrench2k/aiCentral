@@ -18,6 +18,12 @@ define('AI_DEBUG_MODE', false); // Set to true to enable verbose logging
 define('QUOTA_GRACE_PERCENT', 10); // Allow 10% overage
 define('QUOTA_HARD_STOP_PERCENT', 120); // Block at 120%
 
+// Live (realtime) voice calls: ai_makeRealtimeSession / ai_reportRealtimeUsage
+define('AI_REALTIME_URL', 'https://api.openai.com/v1/realtime/calls'); // where the page connects (WebRTC) with the minted key
+define('AI_REALTIME_KEY_SECONDS', 120);     // default life of a minted key (it must be used within this; the call then runs on)
+define('AI_REALTIME_MAX_MINUTES', 60);      // longest call (OpenAI's own limit); a caller may ask for less
+define('AI_REALTIME_SESSION_COST_MAX', 5.0); // one call's cost is never taken above this (USD)
+
 // Cache settings (future enhancement)
 define('CACHE_ENABLED', false);
 define('CACHE_TTL', 3600); // 1 hour

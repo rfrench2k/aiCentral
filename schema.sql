@@ -174,6 +174,19 @@ CREATE TABLE `ai_model_effort_levels` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ai_model_price_part` (
+  `model_id` int NOT NULL,
+  `part_code` varchar(20) NOT NULL COMMENT 'admin_lookups ai_price_part',
+  `price_per_million` decimal(10,6) NOT NULL COMMENT 'USD per 1M tokens',
+  `is_output` tinyint(1) NOT NULL DEFAULT '0' COMMENT '1 = counted as output (output_tokens / output_cost_usd)',
+  `is_cached` tinyint(1) NOT NULL DEFAULT '0' COMMENT '1 = cached input (cache_read_tokens)',
+  `pricing_effective_date` date NOT NULL,
+  PRIMARY KEY (`model_id`,`part_code`),
+  CONSTRAINT `ai_model_price_part_ibfk_1` FOREIGN KEY (`model_id`) REFERENCES `ai_models` (`model_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Prices of models billed in several parts (realtime audio/text)';
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `ai_models` (
   `model_id` int NOT NULL AUTO_INCREMENT,
   `provider_id` int NOT NULL,

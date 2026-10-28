@@ -29,6 +29,10 @@ function aiUsage_init() {
     aiUsage_loadFeatures();
 
     // Set up date range toggle
+    const paidOnly = document.getElementById('filter-paid-only');     // "Paid only": on unless turned off (shared with the dashboard)
+    paidOnly.checked = aiCentral_paidOnly();
+    paidOnly.addEventListener('change', () => aiUsage_applyFilters());
+    document.getElementById('filter-program').addEventListener('change', () => aiUsage_showFeatures());   // its features only
     document.getElementById('filter-daterange').addEventListener('change', function() {
         const customRange = document.getElementById('custom-date-range');
         const customRangeTo = document.getElementById('custom-date-range-to');
@@ -188,17 +192,30 @@ async function aiUsage_loadFeatures() {
 
         const data = await response.json();
         if (data.success) {
-            const select = document.getElementById('filter-feature');
-            data.features.forEach(feature => {
-                const option = document.createElement('option');
-                option.value = feature.feature_code;
-                option.textContent = feature.feature_name + ' (' + feature.program_id + ')';
-                select.appendChild(option);
-            });
+            aiUsage_data.features = data.features;
+            aiUsage_showFeatures();
         }
     } catch (error) {
         console.error('Error loading features:', error);
     }
+}
+
+/**
+ * The Feature list: only the chosen program's features (every program's when none is chosen). A feature that is not
+ * in the chosen program is cleared.
+ */
+function aiUsage_showFeatures() {
+    const select = document.getElementById('filter-feature');
+    const program = document.getElementById('filter-program').value;
+    const keep = select.value || (aiUsage_data.filters.feature ?? '');
+    select.innerHTML = '<option value="">All Features</option>';
+    (aiUsage_data.features || []).filter(f => !program || f.program_id === program).forEach(feature => {
+        const option = document.createElement('option');
+        option.value = feature.feature_code;
+        option.textContent = program ? feature.feature_name : feature.feature_name + ' (' + feature.program_id + ')';
+        select.appendChild(option);
+    });
+    select.value = [...select.options].some(o => o.value === keep) ? keep : '';
 }
 
 /**
@@ -227,8 +244,10 @@ function aiUsage_collectFilters() {
         feature: document.getElementById('filter-feature').value,
         status: document.getElementById('filter-status').value,
         cost: document.getElementById('filter-cost').value,
-        tokens: document.getElementById('filter-tokens').value
+        tokens: document.getElementById('filter-tokens').value,
+        paid_only: document.getElementById('filter-paid-only').checked ? '1' : ''
     };
+    aiCentral_paidOnly(document.getElementById('filter-paid-only').checked);   // the same switch on the dashboard
 }
 
 /**
@@ -267,6 +286,7 @@ function aiUsage_resetFilters() {
     document.getElementById('filter-status').value = 'success';
     document.getElementById('filter-cost').value = '';
     document.getElementById('filter-tokens').value = '';
+    document.getElementById('filter-paid-only').checked = true;
 
     document.getElementById('custom-date-range').style.display = 'none';
     document.getElementById('custom-date-range-to').style.display = 'none';

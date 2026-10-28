@@ -55,17 +55,27 @@ class OllamaProcessor implements BaseProcessor {
         // Earlier conversation turns, then the user message
         [$turns, $prompt] = aiCentral_historyTurns($options, $prompt);
         $messages = array_merge($messages, $turns);
-        // User message
-        $messages[] = [
+        // User message; Ollama takes pictures as plain base64 strings beside the text
+        $userMessage = [
             'role' => 'user',
             'content' => $prompt
         ];
+        if (!empty($options['images']) && is_array($options['images'])) {
+            $userMessage['images'] = array_column($options['images'], 'data');
+            aiCentral_logMessage("OllamaProcessor: Added " . count($userMessage['images']) . " images", 'DEBUG');
+        }
+        $messages[] = $userMessage;
 
         $request = [
             'model' => $modelCode,
             'messages' => $messages,
             'stream' => false,
         ];
+
+        // Thinking off (tier setting, allowed by ai_models.thinking_off_mode)
+        if (!empty($options['thinking_mode'])) {
+            $request['think'] = false;
+        }
 
         // Generation options
         $genOptions = [];
@@ -82,9 +92,21 @@ class OllamaProcessor implements BaseProcessor {
             $request['options'] = $genOptions;
         }
 
-        // JSON format mode - check metadata flag or if prompt mentions JSON
-        if (!empty($options['metadata']['json_mode'])) {
+        // JSON format mode - check metadata flag or if prompt mentions JSON; a json_schema option is passed to Ollama as
+        // the answer's exact shape (structured output)
+        if (!empty($options['json_schema'])) {
+            $request['format'] = $options['json_schema'];
+        } elseif (!empty($options['metadata']['json_mode'])) {
             $request['format'] = 'json';
+        }
+        if (isset($options['max_tokens'])) {
+            $request['options']['num_predict'] = (int)$options['max_tokens'];
+        }
+
+        // How long the model stays loaded on the graphics card after this request (e.g. "2m"; 0 = unload now). The
+        // server default otherwise keeps it there, taking memory other jobs need.
+        if (isset($options['keep_alive'])) {
+            $request['keep_alive'] = $options['keep_alive'];
         }
 
         aiCentral_logMessage("OllamaProcessor: Request built successfully for model $modelCode", 'DEBUG');

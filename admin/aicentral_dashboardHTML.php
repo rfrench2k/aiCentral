@@ -13,7 +13,11 @@ require_once $_SERVER['DOCUMENT_ROOT'] . '/ai/common/header_ai.php';
         </h1>
         <p class="text-muted">Monitor AI usage, costs, and system performance</p>
     </div>
-    <div class="col-auto">
+    <div class="col-auto d-flex align-items-center gap-3">
+        <div class="form-check form-switch mb-0" title="Leave out requests that cost nothing (local models such as Ollama)">
+            <input class="form-check-input" type="checkbox" role="switch" id="aicentral-paid-only">
+            <label class="form-check-label small fw-bold" for="aicentral-paid-only">Paid only</label>
+        </div>
         <button class="btn btn-primary" onclick="aiCentral_refreshDashboard()">
             <i class="bi bi-arrow-clockwise"></i> Refresh
         </button>

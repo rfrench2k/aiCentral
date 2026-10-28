@@ -11,6 +11,10 @@ let aiCentral_dashboardData = {
  * Initialize dashboard
  */
 document.addEventListener('DOMContentLoaded', function() {
+    // "Paid only": requests that cost nothing (local models) left out of every number; remembered in this browser
+    const paidOnly = document.getElementById('aicentral-paid-only');
+    paidOnly.checked = aiCentral_paidOnly();
+    paidOnly.addEventListener('change', () => { aiCentral_paidOnly(paidOnly.checked); aiCentral_loadDashboard(); });
     aiCentral_loadDashboard();
 
     // Auto-refresh every 5 minutes
@@ -46,7 +50,7 @@ async function aiCentral_loadStats() {
         const response = await fetch('/ai/admin/aicentral_dashboardCode.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ action: 'getStats' })
+            body: new URLSearchParams({ action: 'getStats', paid_only: aiCentral_paidOnly() ? '1' : '' })
         });
 
         const data = await response.json();
@@ -103,7 +107,7 @@ async function aiCentral_loadRequestsChart() {
         const response = await fetch('/ai/admin/aicentral_dashboardCode.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ action: 'getRequestsChart' })
+            body: new URLSearchParams({ action: 'getRequestsChart', paid_only: aiCentral_paidOnly() ? '1' : '' })
         });
 
         const result = await response.json();
@@ -152,7 +156,7 @@ async function aiCentral_loadProvidersChart() {
         const response = await fetch('/ai/admin/aicentral_dashboardCode.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ action: 'getProvidersChart' })
+            body: new URLSearchParams({ action: 'getProvidersChart', paid_only: aiCentral_paidOnly() ? '1' : '' })
         });
 
         const result = await response.json();
@@ -206,7 +210,7 @@ async function aiCentral_loadRecentRequests() {
         const response = await fetch('/ai/admin/aicentral_dashboardCode.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ action: 'getRecentRequests' })
+            body: new URLSearchParams({ action: 'getRecentRequests', paid_only: aiCentral_paidOnly() ? '1' : '' })
         });
 
         const result = await response.json();
@@ -252,7 +256,7 @@ async function aiCentral_loadTopPrograms() {
         const response = await fetch('/ai/admin/aicentral_dashboardCode.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ action: 'getTopPrograms' })
+            body: new URLSearchParams({ action: 'getTopPrograms', paid_only: aiCentral_paidOnly() ? '1' : '' })
         });
 
         const result = await response.json();
@@ -296,7 +300,7 @@ async function aiCentral_loadProviderStatus() {
         const response = await fetch('/ai/admin/aicentral_dashboardCode.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ action: 'getProviderStatus' })
+            body: new URLSearchParams({ action: 'getProviderStatus', paid_only: aiCentral_paidOnly() ? '1' : '' })
         });
 
         const result = await response.json();
