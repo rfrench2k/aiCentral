@@ -107,22 +107,36 @@ try {
 }
 
 /**
+ * User's name through the auth system's own functions; the user_id when there is none
+ */
+function aiUsage_userName($userId) {
+    static $names = null;
+    if ($names === null) {
+        $names = [];
+        foreach (auth_getAllUsers(auth_countUsers(), 0) as $u) {
+            if ($u['user_id'] !== null && $u['user_id'] !== '') {
+                $names[$u['user_id']] = $u['user_name'];
+            }
+        }
+    }
+    return $names[$userId] ?? $userId;
+}
+
+/**
  * Get list of users who have used AI
  */
 function getUsers() {
     $conn = ai_getDBConnection();
 
-    $sql = "SELECT DISTINCT u.user_id, u.name as user_name
-            FROM ai_usage_log ul
-            LEFT JOIN auth_db.master_users u ON ul.user_id = u.user_id
-            ORDER BY u.name";
-
-    $result = $conn->query($sql);
+    $result = $conn->query("SELECT DISTINCT user_id FROM ai_usage_log WHERE user_id IS NOT NULL");
     $users = [];
 
     while ($row = $result->fetch_assoc()) {
-        $users[] = $row;
+        $users[] = ['user_id' => $row['user_id'], 'user_name' => aiUsage_userName($row['user_id'])];
     }
+    usort($users, function ($x, $y) {
+        return strcmp((string)$x['user_name'], (string)$y['user_name']);
+    });
 
     echo json_encode(['success' => true, 'users' => $users]);
 }
@@ -323,14 +337,12 @@ function getTopUsers() {
 
     $sql = "SELECT
                 ul.user_id,
-                COALESCE(u.user_name, ul.user_id) as user_name,
                 COUNT(*) as requests
             FROM ai_usage_log ul
-            LEFT JOIN auth_db.master_users u ON ul.user_id = u.user_id
             JOIN ai_providers p ON ul.provider_id = p.provider_id
             JOIN ai_models m ON ul.model_id = m.model_id
             $whereClause
-            GROUP BY ul.user_id, user_name
+            GROUP BY ul.user_id
             ORDER BY requests DESC
             LIMIT 10";
 
@@ -345,7 +357,7 @@ function getTopUsers() {
     $requests = [];
 
     while ($row = $result->fetch_assoc()) {
-        $labels[] = $row['user_name'];
+        $labels[] = aiUsage_userName($row['user_id']);
         $requests[] = (int)$row['requests'];
     }
 
@@ -801,14 +813,7 @@ function getByUserData() {
 
     $records = [];
     while ($row = $result->fetch_assoc()) {
-        // Get user name from separate query to avoid GROUP BY issues
-        $userStmt = $conn->prepare("SELECT user_name FROM auth_db.master_users WHERE user_id = ?");
-        $userStmt->bind_param('s', $row['user_id']);
-        $userStmt->execute();
-        $userResult = $userStmt->get_result();
-        $userRow = $userResult->fetch_assoc();
-
-        $row['user_name'] = $userRow['user_name'] ?? $row['user_id'];
+        $row['user_name'] = aiUsage_userName($row['user_id']);
         $records[] = $row;
     }
 
@@ -933,13 +938,7 @@ function getOutliersData() {
     $result = $stmt->get_result();
     $data['highTokenUsers'] = [];
     while ($row = $result->fetch_assoc()) {
-        // Get user name
-        $userStmt = $conn->prepare("SELECT user_name FROM auth_db.master_users WHERE user_id = ?");
-        $userStmt->bind_param('s', $row['user_id']);
-        $userStmt->execute();
-        $userResult = $userStmt->get_result();
-        $userRow = $userResult->fetch_assoc();
-        $row['user_name'] = $userRow['user_name'] ?? $row['user_id'];
+        $row['user_name'] = aiUsage_userName($row['user_id']);
 
         $data['highTokenUsers'][] = $row;
     }
@@ -966,13 +965,7 @@ function getOutliersData() {
     $result = $stmt->get_result();
     $data['highCostUsers'] = [];
     while ($row = $result->fetch_assoc()) {
-        // Get user name
-        $userStmt = $conn->prepare("SELECT user_name FROM auth_db.master_users WHERE user_id = ?");
-        $userStmt->bind_param('s', $row['user_id']);
-        $userStmt->execute();
-        $userResult = $userStmt->get_result();
-        $userRow = $userResult->fetch_assoc();
-        $row['user_name'] = $userRow['user_name'] ?? $row['user_id'];
+        $row['user_name'] = aiUsage_userName($row['user_id']);
 
         $data['highCostUsers'][] = $row;
     }
@@ -1006,13 +999,7 @@ function getOutliersData() {
     $result = $stmt->get_result();
     $data['slowUsers'] = [];
     while ($row = $result->fetch_assoc()) {
-        // Get user name
-        $userStmt = $conn->prepare("SELECT user_name FROM auth_db.master_users WHERE user_id = ?");
-        $userStmt->bind_param('s', $row['user_id']);
-        $userStmt->execute();
-        $userResult = $userStmt->get_result();
-        $userRow = $userResult->fetch_assoc();
-        $row['user_name'] = $userRow['user_name'] ?? $row['user_id'];
+        $row['user_name'] = aiUsage_userName($row['user_id']);
 
         $data['slowUsers'][] = $row;
     }

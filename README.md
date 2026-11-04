@@ -22,7 +22,7 @@ A PHP/MySQL hub that fronts every major AI provider for a fleet of apps. One cal
 
 **Fast mode and fallbacks, per feature.** A feature tier can run at fast speed (Admin > Features, "Fast mode"; only on models with a `fast_price_multiplier`, priced accordingly). A fast request that hits the fast-mode rate limit is re-sent at standard speed. Models with a `fallback_mode` answer through the provider's fallback model when their safety classifiers decline.
 
-**Embeddings and audio.** `ai_generateEmbedding()` routes to OpenAI or Ollama embedding endpoints (transient errors are retried); `ai_makeTranscriptionRequest()` routes to OpenAI speech-to-text and `ai_makeSpeechRequest()` to OpenAI text-to-speech. Same cost tracking, same tier and quota mechanics as chat requests.
+**Embeddings and audio.** `ai_generateEmbedding()` routes to OpenAI or Ollama embedding endpoints (transient errors are retried); `ai_makeTranscriptionRequest()` routes to OpenAI speech-to-text or to a local Whisper on the server (provider `local_whisper`: `local/whisper_transcribe.py` with faster-whisper; set `AICORE_WHISPER_PYTHON` and `AICORE_WHISPER_MODELS_DIR` in `common/aPRIV_LOCAL.php`; free) and `ai_makeSpeechRequest()` to OpenAI text-to-speech. Same cost tracking, same tier and quota mechanics as chat requests.
 
 **Universal embeddable chatbot.** One PHP include plus one JS init call gives any app a working chatbot — sidebar or floating bubble style. Persistent conversations per user per program, auto-titled from the first message. Each chat type defines its system prompt, default model, history length, and retention. Every assistant response links back to its `ai_usage_log` row so chatbot cost rolls into the same dashboard.
 
@@ -153,7 +153,7 @@ user_program_permissions
     app_level    VARCHAR(20)                 maps to an AI tier via app_level_ai_mapping
 ```
 
-The admin Users page joins `auth_db.master_users` and `auth_db.user_program_permissions` from inside the aicore connection, so the MySQL user configured in `AICORE_DB_*` needs read access to `auth_db`.
+The admin Users and Usage pages read these through the auth module's own functions (`auth_getAllUsers`, `auth_countUsers`, `auth_getUserDetails`, `auth_getUserAllProgramPermissions`), never with SQL on the aicore connection.
 
 When your auth module creates a user or changes their app-level, it should POST to `/ai/api/assignUserTier.php` (see [Server-to-server API](#server-to-server-api)) so AI Central can sync the tier assignment.
 

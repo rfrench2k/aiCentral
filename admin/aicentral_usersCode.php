@@ -56,44 +56,59 @@ try {
 }
 
 /**
- * Get all users (from auth_db.master_users)
+ * AI tier code per user and program, from user_tier_assignments: [user_id][program_id] => tier_code
  */
-function getUsers() {
+function aiUsers_programTierMap($userId = null) {
     $conn = ai_getDBConnection();
 
-    // Read directly from auth_db.master_users and join with AI tier assignments
-    $sql = "SELECT u.user_id, u.user_name as name, u.email,
-                   GROUP_CONCAT(
-                       DISTINCT CONCAT(p.program_id, ':', COALESCE(t.tier_code, 'none'))
-                       SEPARATOR ', '
-                   ) as program_tiers,
-                   u.created_at, u.updated_at
-            FROM auth_db.master_users u
-            LEFT JOIN auth_db.user_program_permissions p ON u.email = p.email
-            LEFT JOIN user_tier_assignments uta ON u.user_id = uta.user_id AND uta.program_id = p.program_id
+    $sql = "SELECT uta.user_id, uta.program_id, t.tier_code, t.tier_name
+            FROM user_tier_assignments uta
             LEFT JOIN ai_tiers t ON uta.tier_id = t.tier_id
-            WHERE u.user_id IS NOT NULL
-            GROUP BY u.user_id, u.user_name, u.email, u.created_at, u.updated_at
-            ORDER BY u.user_name, u.user_id";
-
-    $result = $conn->query($sql);
-
-    if (!$result) {
-        echo json_encode(['success' => false, 'error' => 'Query failed']);
-        return;
+            WHERE uta.program_id IS NOT NULL" . ($userId !== null ? " AND uta.user_id = ?" : "");
+    $stmt = $conn->prepare($sql);
+    if ($userId !== null) {
+        $stmt->bind_param('s', $userId);
     }
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    $map = [];
+    while ($row = $result->fetch_assoc()) {
+        $map[$row['user_id']][$row['program_id']] = $row;
+    }
+    $stmt->close();
+    return $map;
+}
+
+/**
+ * Get all users (through the auth system's own functions) with their AI tier per program
+ */
+function getUsers() {
+    $tierMap = aiUsers_programTierMap();
 
     $users = [];
-    while ($row = $result->fetch_assoc()) {
+    foreach (auth_getAllUsers(auth_countUsers(), 0) as $u) {
+        if ($u['user_id'] === null || $u['user_id'] === '') {
+            continue;
+        }
+        $pairs = [];
+        foreach (auth_getUserAllProgramPermissions($u['email']) as $perm) {
+            $tier = $tierMap[$u['user_id']][$perm['program_id']]['tier_code'] ?? null;
+            $pairs[] = $perm['program_id'] . ':' . ($tier ?? 'none');
+        }
+        $pairs = array_values(array_unique($pairs));
         $users[] = [
-            'user_id' => $row['user_id'],
-            'name' => $row['name'],
-            'email' => $row['email'],
-            'program_tiers' => $row['program_tiers'],
-            'created_at' => $row['created_at'],
-            'updated_at' => $row['updated_at']
+            'user_id' => $u['user_id'],
+            'name' => $u['user_name'],
+            'email' => $u['email'],
+            'program_tiers' => $pairs ? implode(', ', $pairs) : null,
+            'created_at' => $u['created_at']
         ];
     }
+
+    usort($users, function ($x, $y) {
+        return [$x['name'], $x['user_id']] <=> [$y['name'], $y['user_id']];
+    });
 
     echo json_encode(['success' => true, 'users' => $users]);
 }
@@ -128,20 +143,10 @@ function getTiers() {
 function syncUsers() {
     $conn = ai_getDBConnection();
 
-    // Connect to auth_db using centralized connection function
-    $authConn = ai_getAuthDBConnection();
-    if ($authConn === false) {
-        echo json_encode(['success' => false, 'error' => 'Failed to connect to auth_db']);
-        return;
-    }
-
-    // Get all users from auth_db.master_users
-    $sql = "SELECT user_id, user_name, email FROM master_users WHERE user_id IS NOT NULL";
-    $result = $authConn->query($sql);
-
-    if (!$result) {
-        echo json_encode(['success' => false, 'error' => 'Failed to query auth database']);
-        $authConn->close();
+    // All users, through the auth system's own functions
+    $authUsers = auth_getAllUsers(auth_countUsers(), 0);
+    if (!$authUsers) {
+        echo json_encode(['success' => false, 'error' => 'No users from the auth system']);
         return;
     }
 
@@ -149,7 +154,7 @@ function syncUsers() {
     $updated = 0;
     $skipped = 0;
 
-    while ($row = $result->fetch_assoc()) {
+    foreach ($authUsers as $row) {
         $userId = $row['user_id'];
         $name = $row['user_name'];
         $email = $row['email'];
@@ -212,8 +217,6 @@ function syncUsers() {
         }
     }
 
-    $authConn->close();
-
     aiCentral_logMessage("Users synced: $synced new, $updated updated, $skipped skipped", 'INFO');
     echo json_encode([
         'success' => true,
@@ -269,8 +272,6 @@ function updateUserTier() {
  * Get user's program-specific tier assignments
  */
 function getUserProgramTiers() {
-    $conn = ai_getDBConnection();
-
     $userId = $_REQUEST['user_id'] ?? '';
 
     if (empty($userId)) {
@@ -278,32 +279,28 @@ function getUserProgramTiers() {
         return;
     }
 
-    // Get all programs the user has access to from auth_db
-    $sql = "SELECT p.program_id, p.permission_level,
-                   t.tier_code as current_tier, t.tier_name
-            FROM auth_db.user_program_permissions p
-            INNER JOIN auth_db.master_users u ON p.email = u.email
-            LEFT JOIN user_tier_assignments uta ON uta.user_id = u.user_id AND uta.program_id = p.program_id
-            LEFT JOIN ai_tiers t ON uta.tier_id = t.tier_id
-            WHERE u.user_id = ?
-            ORDER BY p.program_id";
+    // Programs the user has access to, through the auth system's own functions
+    $authUser = auth_getUserDetails($userId);
+    if (!$authUser) {
+        echo json_encode(['success' => false, 'error' => 'User not found']);
+        return;
+    }
+    $tierMap = aiUsers_programTierMap($userId)[$userId] ?? [];
 
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param('s', $userId);
-    $stmt->execute();
-    $result = $stmt->get_result();
+    $perms = auth_getUserAllProgramPermissions($authUser['email']);
+    usort($perms, function ($x, $y) {
+        return strcmp($x['program_id'], $y['program_id']);
+    });
 
     $programs = [];
-    while ($row = $result->fetch_assoc()) {
+    foreach ($perms as $perm) {
         $programs[] = [
-            'program_id' => $row['program_id'],
-            'permission_level' => $row['permission_level'],
-            'current_tier' => $row['current_tier'],
-            'tier_name' => $row['tier_name']
+            'program_id' => $perm['program_id'],
+            'permission_level' => $perm['permission_level'],
+            'current_tier' => $tierMap[$perm['program_id']]['tier_code'] ?? null,
+            'tier_name' => $tierMap[$perm['program_id']]['tier_name'] ?? null
         ];
     }
-
-    $stmt->close();
 
     echo json_encode(['success' => true, 'programs' => $programs]);
 }

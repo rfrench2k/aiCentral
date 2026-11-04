@@ -12,3 +12,8 @@
 // IPs (in addition to 127.0.0.1, localhost, ::1) allowed to call the
 // AI Central API endpoints. Add any servers that integrate with /ai/api/*.
 define('AICORE_API_EXTRA_CALLERS', []);
+
+// Local speech to text (provider local_whisper): the Python that has faster-whisper installed, and the folder the
+// whisper models are kept in (downloaded there on first use). Leave empty when the provider is not used.
+define('AICORE_WHISPER_PYTHON', '');
+define('AICORE_WHISPER_MODELS_DIR', '');

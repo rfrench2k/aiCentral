@@ -43,4 +43,11 @@ if (file_exists($privLocalFile)) {
 }
 define('ALLOWED_API_CALLERS', json_encode($allowedCallers));
 
+// Local speech to text (provider local_whisper; ai_makeTranscriptionRequest): the script AI Central runs, and the
+// Python that has faster-whisper and the folder its models are kept in, which vary by deployment
+// (AICORE_WHISPER_PYTHON / AICORE_WHISPER_MODELS_DIR in common/aPRIV_LOCAL.php).
+define('AI_WHISPER_SCRIPT', __DIR__ . '/../local/whisper_transcribe.py');
+define('AI_WHISPER_PYTHON', defined('AICORE_WHISPER_PYTHON') ? AICORE_WHISPER_PYTHON : '');
+define('AI_WHISPER_MODELS_DIR', defined('AICORE_WHISPER_MODELS_DIR') ? AICORE_WHISPER_MODELS_DIR : '');
+
 ?>

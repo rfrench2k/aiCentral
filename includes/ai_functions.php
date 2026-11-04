@@ -707,16 +707,17 @@ function ai_generateEmbedding($params) {
 }
 
 /**
- * Make an audio transcription request via the OpenAI transcription API.
+ * Make an audio transcription request: the OpenAI transcription API, or local whisper on this server
+ * (provider local_whisper: local/whisper_transcribe.py, free; see AI_WHISPER_* in config.php).
  *
  * Uses AI Central for API key management and usage logging, same as
  * ai_makeRequest() does for chat completions. The model is the feature's
- * default_model; its price is ai_models.input_cost_per_million, which for
- * audio models holds USD per 1,000 minutes of audio.
+ * default_model on its default_provider; its price is ai_models.input_cost_per_million, which for
+ * audio models holds USD per 1,000 minutes of audio (0 for local whisper).
  *
  * @param array $params Required keys: user_id, program_id, feature_code, audio_file_path
  *                      Optional: audio_mime (default 'audio/webm'), audio_filename, language (default 'en'; null = detect),
- *                      timeout (seconds, default 30; long recordings need more)
+ *                      timeout (seconds, default 30, OpenAI only; long recordings need more)
  * @return array ['success' => bool, 'text' => string, 'cost' => array, 'error' => string|null]
  */
 function ai_makeTranscriptionRequest($params) {
@@ -739,13 +740,22 @@ function ai_makeTranscriptionRequest($params) {
     $startTime = microtime(true);
 
     try {
-        $setup = ai_audioFeatureSetup($userId, $programId, $featureCode);
+        $setup = ai_audioFeatureSetup($userId, $programId, $featureCode, true);
         if (!empty($setup['error'])) {
             return ['success' => false, 'error' => $setup['error']];
         }
         $model = $setup['model'];
         $modelCode = $model['model_code'];
         $apiKey = $setup['api_key'];
+
+        if ($setup['provider_code'] === 'local_whisper') {
+            $local = ai_localWhisperTranscribe($audioFilePath, $modelCode, $language);
+            $responseTime = (int)((microtime(true) - $startTime) * 1000);
+            $audioSize = filesize($audioFilePath) ?: 0;
+            ai_logAudioUsage($userId, $programId, $featureCode, $model, ['type' => 'transcription', 'audio_size_bytes' => $audioSize, 'seconds' => $local['seconds']], 0, $responseTime, 'success', null);
+            aiCentral_logMessage("Transcription success ($modelCode, local): " . strlen($local['text']) . " chars, user: $userId", 'INFO');
+            return ['success' => true, 'text' => $local['text'], 'cost' => ['total_cost' => 0], 'responseTime' => $responseTime, 'error' => null];
+        }
 
         // whisper models take a single 'language'; newer transcription models take a 'languages' list
         $fields = [
@@ -906,11 +916,12 @@ function ai_makeSpeechRequest($params) {
 
 /**
  * The model and key an audio feature (transcription, speech) runs on, after the quota check.
- * The model is the feature's default_model; audio is OpenAI only.
+ * The model is the feature's default_model on its default_provider: OpenAI, or local_whisper (no key) when
+ * $localOk (transcription only).
  *
- * @return array ['model' => ai_models row, 'api_key' => string] or ['error' => string]
+ * @return array ['model' => ai_models row, 'provider_code' => string, 'api_key' => string|null] or ['error' => string]
  */
-function ai_audioFeatureSetup($userId, $programId, $featureCode) {
+function ai_audioFeatureSetup($userId, $programId, $featureCode, $localOk = false) {
     $featureConfig = ai_getFeatureConfig($programId, $featureCode);
     if (!$featureConfig) {
         return ['error' => 'Feature not found: ' . $featureCode];
@@ -923,9 +934,17 @@ function ai_audioFeatureSetup($userId, $programId, $featureCode) {
         return ['error' => "Model '{$featureConfig['default_model']}' not found in database."];
     }
 
-    $apiKey = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : '';
-    if (empty($apiKey)) {
-        return ['error' => 'OpenAI API key not configured'];
+    $provider = ai_getProviderById($model['provider_id']);
+    $providerCode = $provider['provider_code'] ?? '';
+    if ($providerCode === 'local_whisper' && $localOk) {
+        $apiKey = null;     // runs on this server
+    } elseif ($providerCode === 'openai') {
+        $apiKey = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : '';
+        if (empty($apiKey)) {
+            return ['error' => 'OpenAI API key not configured'];
+        }
+    } else {
+        return ['error' => "Audio is not available on provider '$providerCode'."];
     }
 
     // Check quota (normal mode) or the program's budget (passthrough)
@@ -938,7 +957,38 @@ function ai_audioFeatureSetup($userId, $programId, $featureCode) {
     } elseif ($budgetError = ai_checkProgramBudget($programConfig)) {
         return ['error' => $budgetError];
     }
-    return ['model' => $model, 'api_key' => $apiKey];
+    return ['model' => $model, 'provider_code' => $providerCode, 'api_key' => $apiKey];
+}
+
+/**
+ * Speech to text on this server (provider local_whisper): runs AI_WHISPER_SCRIPT with AI_WHISPER_PYTHON on the
+ * audio file, with the model $modelCode from AI_WHISPER_MODELS_DIR; $language null = detected.
+ * @return array ['text' => string, 'seconds' => float]; throws RuntimeException when it fails
+ */
+function ai_localWhisperTranscribe($audioFilePath, $modelCode, $language) {
+    if (AI_WHISPER_PYTHON === '' || AI_WHISPER_MODELS_DIR === '') {
+        throw new RuntimeException('Local whisper is not configured (AICORE_WHISPER_PYTHON, AICORE_WHISPER_MODELS_DIR)');
+    }
+    if (!is_file($audioFilePath)) {
+        throw new RuntimeException('The audio file is missing');
+    }
+    $outFile = tempnam(sys_get_temp_dir(), 'aiw');
+    if ($outFile === false) {
+        throw new RuntimeException('Could not make a work file');
+    }
+    try {
+        $cmd = escapeshellarg(AI_WHISPER_PYTHON) . ' ' . escapeshellarg(AI_WHISPER_SCRIPT) . ' ' . escapeshellarg($audioFilePath) . ' ' . escapeshellarg($outFile)
+             . ' --model ' . escapeshellarg($modelCode) . ' --models-dir ' . escapeshellarg(AI_WHISPER_MODELS_DIR)
+             . ($language ? ' --language ' . escapeshellarg($language) : '');
+        exec($cmd . ' 2>&1', $output, $exitCode);
+        if ($exitCode !== 0) {
+            throw new RuntimeException("Local whisper failed (exit $exitCode): " . implode(' ', array_slice($output, -3)));
+        }
+        $info = json_decode((string)end($output), true);
+        return ['text' => trim((string)file_get_contents($outFile)), 'seconds' => (float)($info['seconds'] ?? 0)];
+    } finally {
+        @unlink($outFile);
+    }
 }
 
 /**
