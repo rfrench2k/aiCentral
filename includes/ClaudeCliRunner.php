@@ -172,7 +172,9 @@ function aiCentral_claudeCliRun(array $cliArgs, string $promptText, string $call
     }
 
     // Prompt file + a cross-process lock in a system-wide temp dir: concurrent
-    // claude CLI runs silently produce empty output, so they are serialized.
+    // claude CLI runs on the same CLI config folder silently produce empty output,
+    // so they are serialized, one lock per config folder (the owner's own profile,
+    // or the web one): a long run as the owner never holds up web requests.
     $tempDir = DIRECTORY_SEPARATOR === '\\' ? 'C:\\Windows\\Temp\\aicore_claude_cli'
         : rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR . '/') . DIRECTORY_SEPARATOR . 'aicore_claude_cli';
     if (!is_dir($tempDir)) {
@@ -181,7 +183,7 @@ function aiCentral_claudeCliRun(array $cliArgs, string $promptText, string $call
     $promptFile = $tempDir . DIRECTORY_SEPARATOR . 'prompt_' . time() . '_' . bin2hex(random_bytes(4)) . '.txt';
     file_put_contents($promptFile, $promptText);
 
-    $lockHandle = fopen($tempDir . DIRECTORY_SEPARATOR . 'claude_cli.lock', 'c');
+    $lockHandle = fopen($tempDir . DIRECTORY_SEPARATOR . (aiCentral_claudeCliOwnLogin() ? 'claude_cli_own.lock' : 'claude_cli.lock'), 'c');
     if ($lockHandle === false) {
         @unlink($promptFile);
         return ['stdout' => '', 'stderr' => '', 'exit_code' => -1, 'error' => 'Could not open CLI lock file'];

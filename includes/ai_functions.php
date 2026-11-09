@@ -86,6 +86,143 @@ function ai_makeRequest($params) {
 }
 
 /**
+ * Ask a decision model (e.g. Jev, provider typesafe) typed questions about some facts: the feature's model answers
+ * each one with probabilities. Same routing, tiers, keys, quota and usage log as ai_makeRequest; the feature's model
+ * must be a decision model (processor JevProcessor).
+ *
+ * @param array $params user_id, program_id, feature_code,
+ *   state: the facts (string, or array that is sent as JSON; refer to parts of it by path in the questions,
+ *          e.g. "Is `people.p_12.texts.t_9` about the party?"),
+ *   questions: {id: {type: choice|score|noul, instructions: string, criteria: ...}}; ask many in one call,
+ *   options (optional): metadata, run_id
+ * @return array ['success' => bool, 'answers' => {id: answer}, 'usage' => array, 'cost' => array, 'model' => string, 'error' => string]
+ *   choice answer: choice, probabilities {option: p}, confidence; score: score, probabilities, legend, confidence;
+ *   noul: noul (probability of yes)
+ */
+function ai_makeDecision($params) {
+    if (empty($params['questions']) || !is_array($params['questions']) || !array_key_exists('state', $params)) {
+        return ['success' => false, 'error' => 'Missing required parameters (state, questions)'];
+    }
+    $state = $params['state'];
+    $options = $params['options'] ?? [];
+    $options['state'] = $state;
+    $options['questions'] = $params['questions'];
+    $r = ai_makeRequest([
+        'user_id' => $params['user_id'] ?? null,
+        'program_id' => $params['program_id'] ?? null,
+        'feature_code' => $params['feature_code'] ?? null,
+        'prompt' => is_string($state) ? $state : json_encode($state, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        'options' => $options,
+    ]);
+    if (empty($r['success'])) {
+        return ['success' => false, 'answers' => [], 'error' => $r['error'] ?? 'Request failed'];
+    }
+    $answers = json_decode((string)$r['response'], true);
+    if (!is_array($answers)) {
+        return ['success' => false, 'answers' => [], 'error' => "The feature's model did not answer the questions (is it a decision model?)"];
+    }
+    return ['success' => true, 'answers' => $answers, 'usage' => $r['usage'] ?? null, 'cost' => $r['cost'] ?? null,
+            'model' => $r['model'] ?? null, 'error' => null];
+}
+
+/**
+ * Start an AI request that runs in the background: returns at once with its id; the "AI Central - CLI Runner" task
+ * (running as the owner) picks it up within a second and runs it through ai_makeRequest (same feature, tiers, models,
+ * usage log). For long work a page must not wait for, e.g. a search with web tools.
+ *
+ * @param array $params user_id, program_id, feature_code, prompt; options (optional): system, allowed_tools (list), effort, max_tokens
+ * @return array ['success' => bool, 'request_id' => int, 'error' => string]
+ */
+function ai_startRequest($params) {
+    foreach (['user_id', 'program_id', 'feature_code', 'prompt'] as $k) {
+        if (!isset($params[$k]) || $params[$k] === '') return ['success' => false, 'error' => "Missing $k"];
+    }
+    if (!ai_getFeatureConfig($params['program_id'], $params['feature_code'])) {
+        return ['success' => false, 'error' => 'Feature not found: ' . $params['feature_code']];
+    }
+    $conn = ai_getDBConnection();
+    if (!$conn) return ['success' => false, 'error' => 'No AI Central database connection'];
+    $o = $params['options'] ?? [];
+    $userId = (string)$params['user_id'];
+    $programId = (string)$params['program_id'];
+    $featureCode = (string)$params['feature_code'];
+    $prompt = (string)$params['prompt'];
+    $system = isset($o['system']) ? (string)$o['system'] : null;
+    $tools = !empty($o['allowed_tools']) ? implode(',', (array)$o['allowed_tools']) : null;
+    $effort = isset($o['effort']) ? (string)$o['effort'] : null;
+    $maxTokens = isset($o['max_tokens']) ? (int)$o['max_tokens'] : null;
+    $stmt = $conn->prepare("INSERT INTO ai_background_requests (user_id, program_id, feature_code, prompt, system_prompt, allowed_tools, effort, max_tokens)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param('sssssssi', $userId, $programId, $featureCode, $prompt, $system, $tools, $effort, $maxTokens);
+    $ok = $stmt->execute();
+    $id = (int)$conn->insert_id;
+    $stmt->close();
+    if (!$ok) return ['success' => false, 'error' => 'Could not start the request'];
+    aiCentral_logMessage("Background request $id started ($programId/$featureCode for $userId)", 'INFO');
+    return ['success' => true, 'request_id' => $id, 'error' => null];
+}
+
+/**
+ * A background request's state: the given one, or else the newest for user + program + feature.
+ * @return array|null ['request_id', 'status' (pending|running|done|error), 'response', 'error', 'created_at', 'started_at', 'finished_at']
+ */
+function ai_getBackgroundRequest($requestId = null, $userId = null, $programId = null, $featureCode = null) {
+    $conn = ai_getDBConnection();
+    if (!$conn) return null;
+    $cols = 'request_id, status, response, error, created_at, started_at, finished_at';
+    if ($requestId) {
+        $id = (int)$requestId;
+        $stmt = $conn->prepare("SELECT $cols FROM ai_background_requests WHERE request_id = ?");
+        $stmt->bind_param('i', $id);
+    } else {
+        $u = (string)$userId;
+        $p = (string)$programId;
+        $f = (string)$featureCode;
+        $stmt = $conn->prepare("SELECT $cols FROM ai_background_requests WHERE user_id = ? AND program_id = ? AND feature_code = ? ORDER BY request_id DESC LIMIT 1");
+        $stmt->bind_param('sss', $u, $p, $f);
+    }
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc() ?: null;
+    $stmt->close();
+    return $row;
+}
+
+/** Runs one waiting background request (the CLI Runner task calls this). Returns false when none was waiting. */
+function ai_runNextBackgroundRequest($conn) {
+    $conn->begin_transaction();
+    $res = $conn->query("SELECT * FROM ai_background_requests WHERE status = 'pending' ORDER BY request_id LIMIT 1 FOR UPDATE SKIP LOCKED");
+    $row = $res ? $res->fetch_assoc() : null;
+    if (!$row) {
+        $conn->commit();
+        return false;
+    }
+    $id = (int)$row['request_id'];
+    $conn->query("UPDATE ai_background_requests SET status = 'running', started_at = NOW() WHERE request_id = $id");
+    $conn->commit();
+    aiCentral_logMessage("CLI Runner: background request $id ({$row['program_id']}/{$row['feature_code']})", 'INFO');
+    $options = [];
+    if ($row['system_prompt'] !== null) $options['system'] = $row['system_prompt'];
+    if ($row['allowed_tools'] !== null) $options['allowed_tools'] = explode(',', $row['allowed_tools']);
+    if ($row['effort'] !== null) $options['effort'] = $row['effort'];
+    if ($row['max_tokens'] !== null) $options['max_tokens'] = (int)$row['max_tokens'];
+    try {
+        $r = ai_makeRequest(['user_id' => $row['user_id'], 'program_id' => $row['program_id'], 'feature_code' => $row['feature_code'],
+                             'prompt' => $row['prompt'], 'options' => $options]);
+    } catch (Throwable $e) {
+        $r = ['success' => false, 'error' => $e->getMessage()];
+    }
+    $status = !empty($r['success']) ? 'done' : 'error';
+    $response = (string)($r['response'] ?? '');
+    $error = !empty($r['success']) ? null : substr((string)($r['error'] ?? 'Request failed'), 0, 500);
+    $stmt = $conn->prepare("UPDATE ai_background_requests SET status = ?, response = ?, error = ?, prompt = '', finished_at = NOW() WHERE request_id = ?");
+    $stmt->bind_param('sssi', $status, $response, $error, $id);
+    $stmt->execute();
+    $stmt->close();
+    aiCentral_logMessage("CLI Runner: background request $id $status", $status === 'done' ? 'INFO' : 'ERROR');
+    return true;
+}
+
+/**
  * Make request with user's own API key
  */
 function ai_makeRequestWithUserKey($params, $userPref) {
@@ -310,25 +447,8 @@ function ai_makeRequestWithSystemKey($params, $featureConfig, $userPref) {
     ai_applyTierSettings($options, $tierRow, $model);
 
 
-    // Get system API key from config based on provider
-    $apiKey = null;
-    $providerCode = $provider['provider_code'];
-
-    if ($providerCode === 'claude') {
-        $apiKey = ANTHROPIC_API_KEY;
-    } elseif ($providerCode === 'openai') {
-        $apiKey = OPENAI_API_KEY;
-    } elseif ($providerCode === 'kimi') {
-        $apiKey = KIMIK2_API_KEY;
-    } elseif ($providerCode === 'grok') {
-        $apiKey = GROK_API_KEY;
-    } elseif ($providerCode === 'gemini') {
-        $apiKey = GEMINI_API_KEY;
-    } elseif ($providerCode === 'ollama') {
-        $apiKey = 'ollama-no-key'; // Ollama doesn't require an API key
-    } elseif ($providerCode === 'claude_cli') {
-        $apiKey = 'cli-no-key'; // Claude Code CLI uses local OAuth credentials, not an API key
-    }
+    // Get system API key (one list: ai_systemApiKey)
+    $apiKey = ai_systemApiKey($provider['provider_code']);
 
     if (!$apiKey) {
         return ['success' => false, 'error' => "System API key not configured for provider '{$provider['provider_name']}'. Please contact administrator."];
@@ -345,6 +465,24 @@ function ai_makeRequestWithSystemKey($params, $featureConfig, $userPref) {
     );
 
     return $manager->makeRequest($prompt, $options);
+}
+
+/**
+ * The system API key for a provider (keys come from aPRIV_API.php, which reads the AICORE_* environment variables).
+ * Local providers need none and get a placeholder; '' = no key set.
+ */
+function ai_systemApiKey($providerCode) {
+    switch ($providerCode) {
+        case 'claude':     return ANTHROPIC_API_KEY;
+        case 'openai':     return OPENAI_API_KEY;
+        case 'kimi':       return KIMIK2_API_KEY;
+        case 'grok':       return GROK_API_KEY;
+        case 'gemini':     return GEMINI_API_KEY;
+        case 'typesafe':   return TYPESAFE_API_KEY;
+        case 'ollama':     return 'ollama-no-key';   // Ollama doesn't require an API key
+        case 'claude_cli': return 'cli-no-key';      // Claude Code CLI uses local OAuth credentials, not an API key
+        default:           return '';
+    }
 }
 
 /**
@@ -409,25 +547,8 @@ function ai_makeRequestPassthrough($params, $featureConfig, $programConfig) {
     ai_applyTierSettings($options, $tierRow, $model);
 
 
-    // Get system API key
-    $apiKey = null;
-    $providerCode = $provider['provider_code'];
-
-    if ($providerCode === 'claude') {
-        $apiKey = ANTHROPIC_API_KEY;
-    } elseif ($providerCode === 'openai') {
-        $apiKey = OPENAI_API_KEY;
-    } elseif ($providerCode === 'kimi') {
-        $apiKey = KIMIK2_API_KEY;
-    } elseif ($providerCode === 'grok') {
-        $apiKey = GROK_API_KEY;
-    } elseif ($providerCode === 'gemini') {
-        $apiKey = GEMINI_API_KEY;
-    } elseif ($providerCode === 'ollama') {
-        $apiKey = 'ollama-no-key'; // Ollama doesn't require an API key
-    } elseif ($providerCode === 'claude_cli') {
-        $apiKey = 'cli-no-key'; // Claude Code CLI uses local OAuth credentials, not an API key
-    }
+    // Get system API key (one list: ai_systemApiKey)
+    $apiKey = ai_systemApiKey($provider['provider_code']);
 
     if (!$apiKey) {
         return ['success' => false, 'error' => "System API key not configured for provider '{$provider['provider_name']}'."];
@@ -936,7 +1057,7 @@ function ai_audioFeatureSetup($userId, $programId, $featureCode, $localOk = fals
 
     $provider = ai_getProviderById($model['provider_id']);
     $providerCode = $provider['provider_code'] ?? '';
-    if ($providerCode === 'local_whisper' && $localOk) {
+    if (isset(AI_LOCAL_MODELS[$providerCode]) && $localOk) {
         $apiKey = null;     // runs on this server
     } elseif ($providerCode === 'openai') {
         $apiKey = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : '';
@@ -958,6 +1079,53 @@ function ai_audioFeatureSetup($userId, $programId, $featureCode, $localOk = fals
         return ['error' => $budgetError];
     }
     return ['model' => $model, 'provider_code' => $providerCode, 'api_key' => $apiKey];
+}
+
+/**
+ * Run one of this server's local models for a feature (its provider is one of AI_LOCAL_MODELS: local_whisper = speech
+ * to text with every word timed, local_voice = voice prints, local_face = faces and face prints). Same features, tiers
+ * and usage log as every request; free. For long work the caller can watch a progress file (0-100).
+ *
+ * @param array $params user_id, program_id, feature_code, input (the file: audio, video or picture), options (the
+ *   model's own, see its script in /ai/local), progress_file (optional), timeout (seconds, default 3600)
+ * @return array ['success' => bool, 'result' => the model's answer (array), 'seconds' => media length, 'model' => code, 'error' => string]
+ */
+function ai_runLocalModel($params) {
+    foreach (['user_id', 'program_id', 'feature_code', 'input'] as $k) {
+        if (empty($params[$k])) return ['success' => false, 'error' => "Missing $k"];
+    }
+    $start = microtime(true);
+    $setup = ai_audioFeatureSetup($params['user_id'], $params['program_id'], $params['feature_code'], true);
+    if (!empty($setup['error'])) return ['success' => false, 'error' => $setup['error']];
+    $model = $setup['model'];
+    $provider = $setup['provider_code'];
+    if (!isset(AI_LOCAL_MODELS[$provider])) return ['success' => false, 'error' => "Feature '{$params['feature_code']}' is not a local model"];
+    [$script, $modelsDir] = AI_LOCAL_MODELS[$provider];
+    if (AI_WHISPER_PYTHON === '' || $modelsDir === '') return ['success' => false, 'error' => 'Local models are not configured (AICORE_WHISPER_PYTHON, models folders)'];
+    if (!is_file($params['input'])) return ['success' => false, 'error' => 'The input file is missing'];
+    $optFile = tempnam(sys_get_temp_dir(), 'ail');
+    $outFile = tempnam(sys_get_temp_dir(), 'ail');
+    file_put_contents($optFile, json_encode((object)($params['options'] ?? []), JSON_UNESCAPED_SLASHES));
+    try {
+        $cmd = escapeshellarg(AI_WHISPER_PYTHON) . ' ' . escapeshellarg($script) . ' ' . escapeshellarg($params['input']) . ' ' . escapeshellarg($outFile)
+             . ' --model ' . escapeshellarg($model['model_code']) . ' --models-dir ' . escapeshellarg($modelsDir) . ' --options ' . escapeshellarg($optFile)
+             . (!empty($params['progress_file']) ? ' --progress ' . escapeshellarg($params['progress_file']) : '');
+        exec($cmd . ' 2>&1', $output, $exitCode);
+        $ms = (int)round((microtime(true) - $start) * 1000);
+        $info = json_decode((string)end($output), true) ?: [];
+        $result = json_decode((string)file_get_contents($outFile), true);
+        if ($exitCode !== 0 || !is_array($result)) {
+            $error = "Local model failed (exit $exitCode): " . implode(' ', array_slice($output, -3));
+            ai_logAudioUsage($params['user_id'], $params['program_id'], $params['feature_code'], $model, ['type' => $provider, 'input' => basename($params['input'])], 0, $ms, 'error', $error);
+            return ['success' => false, 'error' => $error];
+        }
+        ai_logAudioUsage($params['user_id'], $params['program_id'], $params['feature_code'], $model,
+                         ['type' => $provider, 'input' => basename($params['input']), 'seconds' => $info['seconds'] ?? null, 'count' => $info['count'] ?? null], 0, $ms, 'success', null);
+        return ['success' => true, 'result' => $result, 'seconds' => (float)($info['seconds'] ?? 0), 'model' => $model['model_code'], 'error' => null];
+    } finally {
+        @unlink($optFile);
+        @unlink($outFile);
+    }
 }
 
 /**

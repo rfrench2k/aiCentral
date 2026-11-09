@@ -185,6 +185,29 @@ class ClaudeProcessor implements BaseProcessor {
     }
 
     /**
+     * Prompt-cache tokens from an Anthropic usage block (the API's, and the Claude Code CLI's, which has the same shape).
+     * Anthropic reports these SEPARATELY from input_tokens:
+     *   cache_read     = served from cache (~0.1x input price)
+     *   cache_creation = written to cache (5-min TTL ~1.25x, 1-hour TTL ~2x)
+     * @return array cache_read_tokens, cache_write_5m_tokens, cache_write_1h_tokens, cache_write_tokens
+     */
+    public static function cacheUsage(array $u) {
+        $cc = $u['cache_creation'] ?? [];
+        $out = [
+            'cache_read_tokens'     => (int)($u['cache_read_input_tokens'] ?? 0),
+            'cache_write_5m_tokens' => (int)($cc['ephemeral_5m_input_tokens'] ?? 0),
+            'cache_write_1h_tokens' => (int)($cc['ephemeral_1h_input_tokens'] ?? 0),
+        ];
+        // Older responses give only the total with no 5m/1h split: treat it as 5-min.
+        $ccTotal = (int)($u['cache_creation_input_tokens'] ?? 0);
+        if ($ccTotal > 0 && ($out['cache_write_5m_tokens'] + $out['cache_write_1h_tokens']) === 0) {
+            $out['cache_write_5m_tokens'] = $ccTotal;
+        }
+        $out['cache_write_tokens'] = $out['cache_write_5m_tokens'] + $out['cache_write_1h_tokens'];
+        return $out;
+    }
+
+    /**
      * Parse Claude API response
      *
      * Claude response format:
@@ -236,20 +259,8 @@ class ClaudeProcessor implements BaseProcessor {
             'thinking_tokens' => 0 // Claude doesn't have thinking tokens in standard responses
         ];
 
-        // Prompt-cache tokens. Anthropic reports these SEPARATELY from input_tokens:
-        //   cache_read   = served from cache (~0.1x input price)
-        //   cache_creation = written to cache (5-min TTL ~1.25x, 1-hour TTL ~2x)
-        // Captured here so cost + the usage dashboards reflect them.
-        $cc = $apiResponse['usage']['cache_creation'] ?? [];
-        $usage['cache_read_tokens']     = (int)($apiResponse['usage']['cache_read_input_tokens'] ?? 0);
-        $usage['cache_write_5m_tokens'] = (int)($cc['ephemeral_5m_input_tokens'] ?? 0);
-        $usage['cache_write_1h_tokens'] = (int)($cc['ephemeral_1h_input_tokens'] ?? 0);
-        // Older responses give only the total with no 5m/1h split — treat it as 5-min.
-        $ccTotal = (int)($apiResponse['usage']['cache_creation_input_tokens'] ?? 0);
-        if ($ccTotal > 0 && ($usage['cache_write_5m_tokens'] + $usage['cache_write_1h_tokens']) === 0) {
-            $usage['cache_write_5m_tokens'] = $ccTotal;
-        }
-        $usage['cache_write_tokens'] = $usage['cache_write_5m_tokens'] + $usage['cache_write_1h_tokens'];
+        // Prompt-cache tokens, so cost + the usage dashboards reflect them
+        $usage += self::cacheUsage($apiResponse['usage'] ?? []);
 
         // Extract tool calls if present
         $toolCalls = [];

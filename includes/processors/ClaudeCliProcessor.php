@@ -25,6 +25,7 @@
  */
 
 require_once __DIR__ . '/BaseProcessor.php';
+require_once __DIR__ . '/ClaudeProcessor.php';   // ClaudeProcessor::cacheUsage (the same usage block)
 require_once __DIR__ . '/../../common/common_ai.php';
 require_once __DIR__ . '/../ClaudeCliRunner.php';
 
@@ -101,11 +102,12 @@ class ClaudeCliProcessor implements BaseProcessor {
         return [
             'success'             => true,
             'response'            => $responseText,
+            // the CLI's cached input (most of what it reads) is counted too, the same way as the API's
             'usage'               => [
                 'input_tokens'    => (int)($usage['input_tokens']  ?? 0),
                 'output_tokens'   => (int)($usage['output_tokens'] ?? 0),
                 'thinking_tokens' => 0,
-            ],
+            ] + ClaudeProcessor::cacheUsage($usage),
             'tool_calls'          => [],
             'cli_total_cost_usd'  => $cliCost,
             'raw_response_data'   => $apiResponse,

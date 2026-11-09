@@ -50,4 +50,14 @@ define('AI_WHISPER_SCRIPT', __DIR__ . '/../local/whisper_transcribe.py');
 define('AI_WHISPER_PYTHON', defined('AICORE_WHISPER_PYTHON') ? AICORE_WHISPER_PYTHON : '');
 define('AI_WHISPER_MODELS_DIR', defined('AICORE_WHISPER_MODELS_DIR') ? AICORE_WHISPER_MODELS_DIR : '');
 
+// Local models on this server (ai_runLocalModel): provider => [its script, its models folder]. They run with
+// AI_WHISPER_PYTHON (the one Python with the graphics-card packages); the other folders sit next to whisper's
+// (AICORE_LOCAL_MODELS_DIR in common/aPRIV_LOCAL.php when they are elsewhere).
+define('AI_LOCAL_MODELS_DIR', defined('AICORE_LOCAL_MODELS_DIR') ? AICORE_LOCAL_MODELS_DIR : (AI_WHISPER_MODELS_DIR !== '' ? dirname(AI_WHISPER_MODELS_DIR) : ''));
+define('AI_LOCAL_MODELS', [
+    'local_whisper' => [AI_WHISPER_SCRIPT, AI_WHISPER_MODELS_DIR],                                         // speech to text, every word timed
+    'local_voice'   => [__DIR__ . '/../local/voice_prints.py', AI_LOCAL_MODELS_DIR . '/ecapa'],             // voice prints
+    'local_face'    => [__DIR__ . '/../local/face_scan.py', AI_LOCAL_MODELS_DIR . '/insightface'],          // faces and face prints
+]);
+
 ?>

@@ -3,7 +3,8 @@
  * AI Central - CLI Runner (scheduled task "AI Central - CLI Runner", runs as the owner)
  *
  * Runs the Claude CLI jobs that web requests queue in aicore.claude_cli_jobs
- * (see ClaudeCliRunner.php). It runs as the owner's Windows account, so the CLI
+ * (see ClaudeCliRunner.php), and the background requests (ai_startRequest,
+ * aicore.ai_background_requests) through ai_makeRequest. It runs as the owner's Windows account, so the CLI
  * uses the owner's Claude subscription login, never the API.
  *
  * Runs for about 55 minutes, then exits; the task starts it again (at startup
@@ -19,6 +20,7 @@ if (PHP_SAPI !== 'cli') {
 }
 
 require_once __DIR__ . '/ClaudeCliRunner.php';
+require_once __DIR__ . '/ai_functions.php';   // background requests (ai_startRequest) run here too
 
 if (!aiCentral_claudeCliCanRunHere()) {
     aiCentral_logMessage('CLI Runner: this account has no Claude login in its profile; not running', 'ERROR');
@@ -42,6 +44,10 @@ if (!$conn) {
 $conn->query("UPDATE claude_cli_jobs SET status = 'error', error = 'CLI Runner restarted while running', finished_at = NOW()
               WHERE status = 'running' AND started_at < NOW() - INTERVAL 15 MINUTE");
 
+// Background requests left 'running' by a runner that died (they may run long: up to 3 hours).
+$conn->query("UPDATE ai_background_requests SET status = 'error', error = 'CLI Runner restarted while running', finished_at = NOW()
+              WHERE status = 'running' AND started_at < NOW() - INTERVAL 3 HOUR");
+
 $stopAt = time() + 55 * 60;
 $lastCleanup = 0;
 while (time() < $stopAt) {
@@ -51,6 +57,11 @@ while (time() < $stopAt) {
         $conn->query("UPDATE claude_cli_jobs SET status = 'error', error = 'nobody ran it', prompt = ''
                       WHERE status = 'pending' AND created_at < NOW() - INTERVAL 15 MINUTE");
         $lastCleanup = time();
+    }
+
+    // A background request (ai_startRequest) first: it runs through ai_makeRequest, as the owner.
+    if (ai_runNextBackgroundRequest($conn)) {
+        continue;
     }
 
     // Claim the oldest pending job.
