@@ -58,6 +58,7 @@ define('AI_LOCAL_MODELS', [
     'local_whisper' => [AI_WHISPER_SCRIPT, AI_WHISPER_MODELS_DIR],                                         // speech to text, every word timed
     'local_voice'   => [__DIR__ . '/../local/voice_prints.py', AI_LOCAL_MODELS_DIR . '/ecapa'],             // voice prints
     'local_face'    => [__DIR__ . '/../local/face_scan.py', AI_LOCAL_MODELS_DIR . '/insightface'],          // faces and face prints
+    'local_matte'   => [__DIR__ . '/../local/person_matte.py', AI_LOCAL_MODELS_DIR . '/rvm'],               // person cut-out of a video (a grey video: white = the person)
 ]);
 
 ?>
