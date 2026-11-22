@@ -325,6 +325,7 @@ async function aiCentral_loadProviderStatus() {
                                     <strong>$${prov.costToday.toFixed(2)}</strong>
                                 </div>
                             </div>
+                            ${aiCentral_limitsHtml(prov.limits)}
                         </div>
                     </div>
                 </div>
@@ -333,6 +334,30 @@ async function aiCentral_loadProviderStatus() {
     } catch (error) {
         console.error('Error loading provider status:', error);
     }
+}
+
+/**
+ * Free-tier use of a provider's limited models (getProviderStatus 'limits'): used / limit bars for the last 24 hours
+ * and the last hour. Counts are what AI Central logged: its own requests and those apps report (api/reportUsage.php).
+ */
+function aiCentral_limitsHtml(limits) {
+    if (!limits || !limits.length) return '';
+    const secs = s => s < 60 ? `${Math.round(s)} s` : s < 3600 ? `${+(s / 60).toFixed(1)} min` : `${+(s / 3600).toFixed(1)} h`;
+    const bar = (label, used, limit, fmt) => {
+        if (limit === null || limit === undefined) return '';
+        const pct = Math.min(100, limit > 0 ? used * 100 / limit : 0);
+        const color = pct >= 90 ? 'bg-danger' : pct >= 70 ? 'bg-warning' : 'bg-success';
+        return `<div class="d-flex justify-content-between small mt-1"><span class="text-muted">${label}</span><span>${fmt(used)} / ${fmt(limit)}</span></div>
+                <div class="progress" style="height:4px"><div class="progress-bar ${color}" style="width:${pct}%"></div></div>`;
+    };
+    return limits.map(m => `
+        <div class="mt-3 pt-2 border-top">
+            <small class="fw-bold d-block">${aiCentral_escapeHtml(m.model)}</small>
+            ${bar('Requests · 24 h', m.requestsDay, m.limitRequestsDay, aiCentral_formatNumber)}
+            ${bar('Audio · 1 h', m.audioSecHour, m.limitAudioSecHour, secs)}
+            ${bar('Audio · 24 h', m.audioSecDay, m.limitAudioSecDay, secs)}
+            ${bar('Tokens · 24 h', m.tokensDay, m.limitTokensDay, aiCentral_formatNumber)}
+        </div>`).join('') + '<small class="text-muted d-block mt-2">Logged requests only</small>';
 }
 
 /**

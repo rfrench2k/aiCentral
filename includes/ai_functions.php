@@ -478,6 +478,7 @@ function ai_systemApiKey($providerCode) {
         case 'kimi':       return KIMIK2_API_KEY;
         case 'grok':       return GROK_API_KEY;
         case 'gemini':     return GEMINI_API_KEY;
+        case 'groq':       return GROQ_API_KEY;
         case 'typesafe':   return TYPESAFE_API_KEY;
         case 'ollama':     return 'ollama-no-key';   // Ollama doesn't require an API key
         case 'claude_cli': return 'cli-no-key';      // Claude Code CLI uses local OAuth credentials, not an API key
@@ -828,7 +829,7 @@ function ai_generateEmbedding($params) {
 }
 
 /**
- * Make an audio transcription request: the OpenAI transcription API, or local whisper on this server
+ * Make an audio transcription request: the OpenAI or Groq transcription API, or local whisper on this server
  * (provider local_whisper: local/whisper_transcribe.py, free; see AI_WHISPER_* in config.php).
  *
  * Uses AI Central for API key management and usage logging, same as
@@ -885,14 +886,14 @@ function ai_makeTranscriptionRequest($params) {
         ];
         if (strpos($modelCode, 'whisper') === 0) {
             if ($language) $fields['language'] = $language;
-            $fields['response_format'] = 'json';
+            $fields['response_format'] = 'verbose_json';   // adds 'duration': the audio length, for usage and limits
         } elseif ($language) {
             $fields['languages[]'] = $language;
         }
 
         $curl = curl_init();
         curl_setopt_array($curl, [
-            CURLOPT_URL => 'https://api.openai.com/v1/audio/transcriptions',
+            CURLOPT_URL => $setup['api_base'] . '/audio/transcriptions',
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => $timeout,
             CURLOPT_CONNECTTIMEOUT => 10,
@@ -1059,10 +1060,10 @@ function ai_audioFeatureSetup($userId, $programId, $featureCode, $localOk = fals
     $providerCode = $provider['provider_code'] ?? '';
     if (isset(AI_LOCAL_MODELS[$providerCode]) && $localOk) {
         $apiKey = null;     // runs on this server
-    } elseif ($providerCode === 'openai') {
-        $apiKey = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : '';
+    } elseif ($providerCode === 'openai' || ($providerCode === 'groq' && $localOk)) {   // Groq: transcription only
+        $apiKey = ai_systemApiKey($providerCode);
         if (empty($apiKey)) {
-            return ['error' => 'OpenAI API key not configured'];
+            return ['error' => ($provider['provider_name'] ?? $providerCode) . ' API key not configured'];
         }
     } else {
         return ['error' => "Audio is not available on provider '$providerCode'."];
@@ -1078,7 +1079,16 @@ function ai_audioFeatureSetup($userId, $programId, $featureCode, $localOk = fals
     } elseif ($budgetError = ai_checkProgramBudget($programConfig)) {
         return ['error' => $budgetError];
     }
-    return ['model' => $model, 'provider_code' => $providerCode, 'api_key' => $apiKey];
+    return ['model' => $model, 'provider_code' => $providerCode, 'api_key' => $apiKey, 'api_base' => ai_providerApiBase($provider)];
+}
+
+/**
+ * The OpenAI-compatible base of a provider ("https://api.openai.com/v1"): its api_endpoint without a trailing
+ * /chat/completions. Audio calls add /audio/transcriptions or /audio/speech.
+ */
+function ai_providerApiBase($provider) {
+    $endpoint = rtrim((string)($provider['api_endpoint'] ?? ''), '/');
+    return preg_replace('#/chat/completions$#', '', $endpoint);
 }
 
 /**
@@ -1160,15 +1170,23 @@ function ai_localWhisperTranscribe($audioFilePath, $modelCode, $language) {
 }
 
 /**
- * Log an audio request (transcription or speech) to ai_usage_log.
- * Simplified version of AIProviderManager::logUsage; the cost goes in input_cost_usd.
+ * Log an audio request (transcription or speech) to ai_usage_log (ai_logUsageRow with no tokens).
  * $model is the ai_models row used (null when the request failed before a model was chosen);
- * $details goes to request_metadata (type, audio size, characters, ...).
+ * $details goes to request_metadata (type, audio size, seconds, characters, ...).
  * @return int|null The new usage_id, or null when nothing was logged
  */
 function ai_logAudioUsage($userId, $programId, $featureCode, $model, array $details, $cost, $responseTime, $status, $error) {
+    return ai_logUsageRow($userId, $programId, $featureCode, $model, 0, 0, $details, $cost, 0, $responseTime, $status, $error);
+}
+
+/**
+ * One row of ai_usage_log without prompt or response text (audio requests, and calls an outside client reports through
+ * api/reportUsage.php). Simplified version of AIProviderManager::logUsage. key_type 'system'.
+ * @return int|null The new usage_id, or null when nothing was logged
+ */
+function ai_logUsageRow($userId, $programId, $featureCode, $model, $inputTokens, $outputTokens, array $details, $inputCost, $outputCost, $responseTime, $status, $error) {
     if (!$model) {
-        aiCentral_logMessage("Audio request $status before a model was chosen: $error", 'ERROR');
+        aiCentral_logMessage("AI request $status before a model was chosen: $error", 'ERROR');
         return null;
     }
     $conn = ai_getDBConnection();
@@ -1182,27 +1200,33 @@ function ai_logAudioUsage($userId, $programId, $featureCode, $model, array $deta
             input_cost_usd, output_cost_usd, thinking_cost_usd,
             response_time_ms, status, error_message, request_metadata
         ) VALUES (?, ?, ?, ?, ?,
-            'system', 0, 0, 0,
-            ?, 0, 0,
+            'system', ?, ?, 0,
+            ?, ?, 0,
             ?, ?, ?, ?)";
 
         $stmt = $conn->prepare($sql);
         if ($stmt) {
             $providerId = $model['provider_id'] ?? null;
             $modelId = $model['model_id'] ?? null;
+            $inTok = (int)$inputTokens;
+            $outTok = (int)$outputTokens;
+            $inCost = (float)$inputCost;
+            $outCost = (float)$outputCost;
+            $ms = (int)$responseTime;
             $metadata = json_encode($details);
-            $stmt->bind_param('sssiidisss',
+            $stmt->bind_param('sssiiiiddisss',
                 $userId, $programId, $featureCode,
                 $providerId, $modelId,
-                $cost,
-                $responseTime, $status, $error, $metadata
+                $inTok, $outTok,
+                $inCost, $outCost,
+                $ms, $status, $error, $metadata
             );
             $stmt->execute();
             $usageId = $stmt->insert_id ?: null;
             $stmt->close();
         }
     } catch (Exception $e) {
-        aiCentral_logMessage("Failed to log audio usage: " . $e->getMessage(), 'ERROR');
+        aiCentral_logMessage("Failed to log usage: " . $e->getMessage(), 'ERROR');
     }
     return $usageId;
 }

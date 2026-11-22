@@ -580,4 +580,24 @@ function ai_updateTierCapability($tierId, $capabilityCode, $enabled, $maxUses) {
     return $result;
 }
 
+/**
+ * The program and user of an outside client's key (ai_client_keys; api/reportUsage.php), from an
+ * "Authorization: Bearer <key>" header; marks the key used. null when the key is missing, unknown or turned off.
+ * @return array|null ['key_id', 'program_id', 'user_id']
+ */
+function ai_clientKeyOwner($authorization) {
+    if (!preg_match('/^Bearer\s+(\S{20,200})$/', (string)$authorization, $m)) return null;
+    $hash = hash('sha256', $m[1]);
+    $conn = ai_getDBConnection();
+    $result = aiCentral_executeQuery($conn, "SELECT key_id, program_id, user_id FROM ai_client_keys WHERE key_hash = ? AND is_active = 1", [$hash], 's');
+    $row = $result ? $result->fetch_assoc() : null;
+    if (!$row) return null;
+    $stmt = $conn->prepare("UPDATE ai_client_keys SET last_used_at = NOW() WHERE key_id = ?");   // no result set: not aiCentral_executeQuery
+    $keyId = (int)$row['key_id'];
+    $stmt->bind_param('i', $keyId);
+    $stmt->execute();
+    $stmt->close();
+    return $row;
+}
+
 ?>

@@ -11,6 +11,7 @@ define('OPENAI_API_KEY', getenv('AICORE_OPENAI_API_KEY') ?: '');
 define('KIMIK2_API_KEY', getenv('AICORE_KIMI_API_KEY') ?: '');
 define('GROK_API_KEY', getenv('AICORE_GROK_API_KEY') ?: '');
 define('GEMINI_API_KEY', getenv('AICORE_GEMINI_API_KEY') ?: '');
+define('GROQ_API_KEY', getenv('AICORE_GROQ_API_KEY') ?: '');       // Groq (speech to text)
 define('TYPESAFE_API_KEY', getenv('AICORE_TYPESAFE_API_KEY') ?: '');   // Jev (TypeSafe System One decisions)
 
 ?>

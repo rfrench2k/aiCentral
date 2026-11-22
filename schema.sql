@@ -187,6 +187,22 @@ CREATE TABLE `ai_model_price_part` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ai_client_keys` (
+  `key_id` int NOT NULL AUTO_INCREMENT,
+  `program_id` varchar(20) NOT NULL,
+  `user_id` varchar(125) NOT NULL,
+  `key_name` varchar(100) NOT NULL,
+  `key_hash` char(64) NOT NULL COMMENT 'sha256 of the key; the key itself is never stored (admin/clientKeyCreate.php, api/reportUsage.php)',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `last_used_at` datetime DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`key_id`),
+  UNIQUE KEY `uq_key_hash` (`key_hash`),
+  KEY `idx_program` (`program_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `ai_models` (
   `model_id` int NOT NULL AUTO_INCREMENT,
   `provider_id` int NOT NULL,
@@ -213,6 +229,11 @@ CREATE TABLE `ai_models` (
   `fast_price_multiplier` decimal(6,3) DEFAULT NULL COMMENT 'price multiplier at speed fast; NULL = no fast mode',
   `fallback_mode` varchar(20) DEFAULT NULL COMMENT 'server-side fallback when the model declines (default); NULL = none',
   `thinking_off_mode` varchar(20) DEFAULT NULL COMMENT 'admin_lookups ai_thinking_off_mode; NULL = thinking cannot be turned off',
+  `limit_requests_day` int DEFAULT NULL COMMENT 'free-tier requests per 24 h; NULL = none (dashboard Provider Status)',
+  `limit_audio_sec_hour` int DEFAULT NULL COMMENT 'free-tier audio seconds per hour',
+  `limit_audio_sec_day` int DEFAULT NULL COMMENT 'free-tier audio seconds per 24 h',
+  `limit_tokens_day` int DEFAULT NULL COMMENT 'free-tier tokens per 24 h',
+  `audio_min_sec` int DEFAULT NULL COMMENT 'each recording counts at least this many seconds (Groq: 10)',
   PRIMARY KEY (`model_id`),
   KEY `idx_provider_model` (`provider_id`,`model_code`),
   KEY `idx_active` (`is_active`),
