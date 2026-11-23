@@ -595,6 +595,21 @@ function ai_monthSpend($programId, $userId = null, $featureCodes = null) {
 }
 
 /**
+ * How long a feature's answers usually take, in seconds: the middle of its last $last successful calls (null = none
+ * yet). For a page's "about N seconds" while it waits.
+ */
+function ai_typicalSeconds($programId, $featureCode, $last = 20) {
+    $conn = ai_getDBConnection();
+    $result = aiCentral_executeQuery($conn, "SELECT response_time_ms FROM ai_usage_log WHERE program_id = ? AND feature_code = ? AND status = 'success'
+                                             AND response_time_ms > 0 ORDER BY usage_id DESC LIMIT " . max(1, (int)$last), [$programId, $featureCode], 'ss');
+    if (!$result) return null;
+    $ms = array_map('intval', array_column($result->fetch_all(MYSQLI_ASSOC), 'response_time_ms'));
+    if (!$ms) return null;
+    sort($ms);
+    return (int)ceil($ms[intdiv(count($ms), 2)] / 1000);
+}
+
+/**
  * The program's monthly budget (programs.monthly_spend_limit_usd; NULL = none), for every request
  * paid with the system keys, passthrough included.
  *
