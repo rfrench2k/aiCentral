@@ -211,7 +211,7 @@ class AIProviderManager {
                 $result = $processor->parseResponse($apiResponse['data'], $apiResponse['http_code'], $requestBody);
 
                 // Add raw request to result for logging
-                $result['raw_request'] = json_encode($requestBody, JSON_PRETTY_PRINT);
+                $result['raw_request'] = $this->requestForLog($requestBody, $options['images'] ?? []);
                 $loggedPrompt = $round === 0 ? $prompt : "[tool results, round $round] " . $prompt;
 
                 if (!$result['success']) {
@@ -386,6 +386,22 @@ class AIProviderManager {
             }
         }
         return [$apiResponse, $requestBody];
+    }
+
+    /**
+     * The request as logged: each attached image's data is replaced by "[image: <source>]"
+     * (options['images'][n]['source'], the caller's address of the picture) or "[image]".
+     */
+    private function requestForLog(array $requestBody, $images) {
+        $raw = json_encode($requestBody, JSON_PRETTY_PRINT);
+        foreach ((array)$images as $image) {
+            if (empty($image['data']) || !is_string($image['data'])) {
+                continue;
+            }
+            $label = empty($image['source']) ? '[image]' : '[image: ' . $image['source'] . ']';
+            $raw = str_replace(substr(json_encode($image['data']), 1, -1), substr(json_encode($label), 1, -1), $raw);
+        }
+        return $raw;
     }
 
     /**
